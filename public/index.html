@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RoamLive</title>
+    <!-- Leaflet CSS and JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <!-- Your Custom Styles -->
+    <link rel="stylesheet" href="styles.css">
+    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
+    <style>
+        /* Basic form styling (can move to styles.css) */
+        .auth-form { position: absolute; top: 10px; right: 10px; background-color: #242424; padding: 15px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); z-index: 1001; color: white; width: 220px; }
+        .auth-form h3 { margin-top: 0; }
+        .auth-form label { display: block; margin-bottom: 5px; font-size: 0.9em; }
+        .auth-form input { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; background-color: #343a40; color: white; border: 1px solid #6c757d; border-radius: 3px;}
+        .auth-form button { padding: 10px 15px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 5px; width: 100%; font-weight: bold; }
+        .auth-form button:hover { background-color: #0056b3; }
+        .auth-form .message { color: #ffc107; margin-top: 10px; font-size: 0.9em; min-height: 1.2em; text-align: center;}
+        .auth-form .toggle-link { font-size: 0.8em; color: #adb5bd; cursor: pointer; text-decoration: underline; margin-top: 10px; display: block; text-align: center;}
+        #login-form { display: none; }
+
+        /* User Status */
+        #user-status { position: absolute; top: 10px; right: 10px; background: rgba(51, 51, 51, 0.8); color: white; padding: 5px 10px; border-radius: 5px; z-index: 1001; display: none; font-size: 0.9em; }
+        #logout-button { margin-left: 10px; background: #dc3545; border: none; color: white; cursor: pointer; border-radius: 3px; padding: 2px 5px; }
+        #logout-button:hover { background: #c82333; }
+
+        /* Chat Window */
+        #chat-window { display: none; position: fixed; bottom: 0; right: 10px; width: 300px; height: 400px; background-color: #333; border: 1px solid #555; border-bottom: none; border-radius: 5px 5px 0 0; z-index: 1005; color: white; display: flex; flex-direction: column; box-shadow: 0 -2px 10px rgba(0,0,0,0.5); }
+        #chat-header { background-color: #444; padding: 8px; font-weight: bold; border-bottom: 1px solid #555; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        #chat-header span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.9em; }
+        #close-chat-btn { background: #6c757d; border: none; color: white; cursor: pointer; border-radius: 50%; padding: 0px 6px; font-size: 14px; line-height: 1; flex-shrink: 0; margin-left: 5px;}
+        #close-chat-btn:hover { background: #5a6268; }
+        #chat-messages { flex-grow: 1; padding: 10px; overflow-y: auto; border-bottom: 1px solid #555; font-size: 0.9em; background-color: #2b2b2b; }
+        #chat-messages::-webkit-scrollbar { width: 6px; }
+        #chat-messages::-webkit-scrollbar-track { background: #333; }
+        #chat-messages::-webkit-scrollbar-thumb { background: #666; border-radius: 3px;}
+        #chat-messages::-webkit-scrollbar-thumb:hover { background: #888; }
+        #chat-input-area { display: flex; padding: 8px; background-color: #444; flex-shrink: 0; }
+        #chat-message-input { flex-grow: 1; padding: 8px; background-color: #555; color: white; border: 1px solid #666; border-radius: 3px; }
+        #send-chat-btn { margin-left: 5px; padding: 8px 12px; background-color: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        #send-chat-btn:hover { background-color: #0056b3; }
+        .system-message { font-style: italic; color: #aaa; text-align: center; font-size: 0.8em; margin: 5px 0; }
+
+        /* Pop up button styling */
+        .leaflet-popup-content button { border: none; color: white; padding: 8px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; margin-right: 3px; }
+        .leaflet-popup-content button:hover { opacity: 0.85; }
+        .leaflet-popup-content button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .leaflet-popup-content .select-button { background-color: #28a745; }
+        .leaflet-popup-content .chat-button { background-color: #17a2b8; margin-left: 5px;}
+        .leaflet-popup-content .chat-button:disabled { background-color: #6c757d; }
+
+        #chat-input-area {
+            position: relative; /* Needed for absolute positioning of picker */
+            display: flex;
+            padding: 8px;
+            background-color: #444;
+            flex-shrink: 0;
+        }
+        #emoji-btn {
+            background: none;
+            border: none;
+            font-size: 1.4em; /* Make emoji bigger */
+            cursor: pointer;
+            padding: 0 8px 0 0; /* Adjust padding */
+            color: #ccc;
+            line-height: 1; /* Align emoji vertically */
+        }
+         #emoji-btn:hover {
+             color: #fff;
+         }
+
+        emoji-picker { /* Style the picker element */
+            position: absolute;
+            bottom: 50px; /* Position above the input area */
+            right: 5px;
+            z-index: 1010; /* Above chat window */
+            display: none; /* Hidden by default */
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            border-radius: 8px;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div id="controls-sidebar">
+        <label for="nickname" class="toggle-label">Nickname:</label>
+        <input type="text" id="nickname" value="User" style="width: 100%; padding: 10px; border-radius: 5px; border: 1px solid #6c757d; font-size: 14px; background-color: #343a40; color: #ffffff;" readonly>
+        <label for="ghost-mode" class="toggle-label">Ghost Mode:</label>
+        <div style="display: flex; align-items: center; justify-content: space-between;"> <label class="toggle-switch"><input type="checkbox" id="ghost-mode"><span class="slider"></span></label><span id="ghost-mode-status" style="color: #fff;">Off</span></div>
+        <label for="my-location-button" class="toggle-label">My Location:</label>
+        <div style="display: flex; align-items: center; justify-content: space-between;"><label class="toggle-switch"><input type="checkbox" id="my-location-button"><span class="slider"></span></label><span id="my-location-status" style="color: #fff;">Off</span></div>
+        <label for="mode">Mode:</label>
+        <select id="mode"> <option value="person">Person</option> <option value="motorcycle">Motorcycle</option> <option value="car">Car</option> </select>
+    </div>
+
+    <div id="user-status">Logged in as: <span id="logged-in-username"></span> <button id="logout-button">Logout</button> </div>
+
+    <div id="auth-container">
+        <div id="signup-form" class="auth-form"> <h3>Sign Up</h3> <form> <label for="signup-username">Username:</label> <input type="text" id="signup-username" required autocomplete="username"> <label for="signup-password">Password:</label> <input type="password" id="signup-password" required autocomplete="new-password"> <button type="submit">Sign Up</button> <div class="message" id="signup-message"></div> <span class="toggle-link" onclick="toggleForms()">Already have an account? Login</span> </form> </div>
+        <div id="login-form" class="auth-form"> <h3>Login</h3> <form> <label for="login-username">Username:</label> <input type="text" id="login-username" required autocomplete="username"> <label for="login-password">Password:</label> <input type="password" id="login-password" required autocomplete="current-password"> <button type="submit">Login</button> <div class="message" id="login-message"></div> <span class="toggle-link" onclick="toggleForms()">Don't have an account? Sign Up</span> </form> </div>
+    </div>
+
+    <div id="chat-window">
+        <div id="chat-header"> <span id="chat-with-username">Chat</span> <button id="close-chat-btn" title="Close Chat">X</button> </div>
+        <div id="chat-messages"></div>
+
+        <!-- Modified Chat Input Area -->
+        <div id="chat-input-area">
+            <button id="emoji-btn" title="Choose emoji">😊</button> <!-- Emoji Button -->
+            <input type="text" id="chat-message-input" placeholder="Type message..." autocomplete="off">
+            <button id="send-chat-btn">Send</button>
+            <!-- Emoji Picker Element -->
+            <emoji-picker id="emoji-picker" class="light"></emoji-picker> <!-- Add picker -->
+        </div>
+    </div>
+    <!-- Libraries -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

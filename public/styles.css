@@ -1,0 +1,172 @@
+/* Main layout styles */
+body {
+  font-family: 'Inter', sans-serif;
+  margin: 0;
+  overflow: hidden;
+}
+
+#map {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Traveler marker styles */
+.traveler-icon {
+  font-size: 24px;
+  text-align: center;
+  line-height: 1;
+}
+
+.select-button {
+  background-color: #4CAF50;
+  color: white;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.select-button:hover {
+  background-color: #367c39;
+}
+
+/* Controls sidebar styles */
+#controls-sidebar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background-color: #242424;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  width: 200px;
+}
+
+#controls-sidebar label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #ffffff;
+  font-size: 14px;
+}
+
+/* Toggle switch styles */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 34px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  -webkit-transition: .4s;
+  transition: .4s;
+  border-radius: 34px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 26px;
+  width: 26px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  -webkit-transition: .4s;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: #007bff;
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px #007bff;
+}
+
+input:checked + .slider:before {
+  -webkit-transform: translateX(26px);
+  -ms-transform: translateX(26px);
+  transform: translateX(26px);
+}
+
+.toggle-label {
+  margin-right: 10px;
+  font-size: 14px;
+  color: #eee;
+}
+
+/* Form control styles */
+#controls-sidebar select {
+  width: 100%;
+  padding: 10px;
+  border-radius: 5px;
+  border: 1px solid #6c757d;
+  font-size: 14px;
+  transition: border-color 0.3s ease;
+  background-color: #343a40;
+  color: #ffffff;
+}
+
+#controls-sidebar select:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+}
+
+#controls-sidebar select option {
+  background-color: #ffffff;
+  color: #000;
+}
+
+/* Nickname input styles */
+#nickname {
+  width: 100%;
+  padding: 10px;
+  border-radius: 5px;
+  border: 1px solid #6c757d;
+  font-size: 14px;
+  transition: border-color 0.3s ease;
+  background-color: #343a40;
+  color: #ffffff;
+}
+
+#nickname:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+}
+.meetpoint-icon {
+  font-size: 24px;
+  text-align: center;
+  line-height: 1;
+  width: 30px !important;  
+  height: 30px !important;  
+
+}
+.traveler-icon { 
+  font-size: 24px;
+  text-align: center;
+  line-height: 1;
+  width: 30px !important;
+  height: 30px !important;
+}
