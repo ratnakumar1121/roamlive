@@ -14,6 +14,10 @@ let currentChatTarget = null;
 let onlineUsersMap = new Map();
 let conversationsMap = new Map();
 let unreadSenders = new Map();
+let currentChatType = 'private'; // 'private' or 'group'
+let currentGroupId = null;
+let messageReactions = new Map();
+let pinnedMessages = new Set();
 
 // === UTILITY ===
 const getMyUserId = () => parseInt(localStorage.getItem('loggedInUserId') || '-1');
@@ -56,7 +60,14 @@ document.addEventListener('DOMContentLoaded', () => {
         modeSelector: document.getElementById('mode'),
         chatUnreadBadge: document.getElementById('chat-unread-badge'),
         toggleToLoginLink: document.getElementById('toggle-to-login'),       // <-- Check if this is found
-        toggleToSignupLink: document.getElementById('toggle-to-signup')     // <-- Check if this is found
+        toggleToSignupLink: document.getElementById('toggle-to-signup'),     // <-- Check if this is found
+        mapLayerSelector: document.getElementById('map-layer'),
+        addParticipantBtn: document.getElementById('add-participant-btn'),
+        closeParticipantsModal: document.getElementById('close-participants-modal'),
+        fileUploadBtn: document.getElementById('file-upload-btn'),
+        closeFileModal: document.getElementById('close-file-modal'),
+        uploadFileBtn: document.getElementById('upload-file-btn'),
+        themeToggleBtn: document.getElementById('theme-toggle-btn')
     };
 
     // --- DEBUG: Log found elements ---
@@ -66,6 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loginFormEl: !!domElements.loginFormEl,
         toggleToLoginLink: !!domElements.toggleToLoginLink,
         toggleToSignupLink: !!domElements.toggleToSignupLink,
+        mapLayerSelector: !!domElements.mapLayerSelector,
         // Add others if needed
     });
 
@@ -138,10 +150,109 @@ document.addEventListener('DOMContentLoaded', () => {
     // ... (keep connectWebSocket, disconnectWebSocket, openChatWindow, closeChatWindow, displayChatMessage, addSystemMessageToChat, sendChatMessage, updateUnreadBadge, showConversationsPanel, hideConversationsPanel, toggleConversationsPanel, renderConversationsList, handleChatBackButtonClick as they were) ...
     function connectWebSocket(token) { if (socket?.connected) return; console.log("[WS] Attempting connection..."); unreadSenders.clear(); updateUnreadBadge(); conversationsMap.clear(); socket = io({ auth: { token } }); socket.on('connect', () => { console.log(`[WS] Connected: ${socket.id}`); const myUserId = getMyUserId(); const myUsername = localStorage.getItem('loggedInUser'); const currentMode = domElements.modeSelector?.value || 'person'; if (myUserId > 0 && myUsername) { onlineUsersMap.set(myUserId, { userId: myUserId, username: myUsername, mode: currentMode, latitude: userLocation.latitude, longitude: userLocation.longitude, marker: null, isOnline: true }); addUserToMap(onlineUsersMap.get(myUserId)); if (locationActive && userLocation.latitude != null) socket.emit('update location', { latitude: userLocation.latitude, longitude: userLocation.longitude }); socket.emit('update mode', { mode: currentMode }); socket.emit('request conversations'); } }); socket.on('disconnect', (reason) => { console.log(`[WS] Disconnected: ${reason}`); clearAllUserMarkers(); onlineUsersMap.clear(); conversationsMap.clear(); unreadSenders.clear(); updateUnreadBadge(); renderConversationsList(); if (reason === 'io server disconnect') { alert("Auth error. Disconnected."); domElements.logoutButton?.click(); } else { socket = null; updateLoginState(); } }); socket.on('connect_error', (error) => { console.error(`[WS] Connect Error: ${error.message}`); if (error.message.includes("Authentication")) { alert("WebSocket Auth Failed."); domElements.logoutButton?.click(); } else { console.error(`Cannot connect to server: ${error.message}`); } }); socket.on('conversation list response', (partners) => { console.log('[WS] Rcvd conversation list:', partners); const newConversationsMap = new Map(); partners.forEach(p => { newConversationsMap.set(p.userId, { ...p, isOnline: onlineUsersMap.has(p.userId) && onlineUsersMap.get(p.userId).isOnline }); }); conversationsMap.forEach((clientData, userId) => { if (!newConversationsMap.has(userId)) { newConversationsMap.set(userId, clientData); } }); conversationsMap = newConversationsMap; renderConversationsList(); }); socket.on('user connected', (userData) => { console.log('[WS] Rcvd user connected:', userData.username); onlineUsersMap.set(userData.userId, { ...userData, isOnline: true, marker: onlineUsersMap.get(userData.userId)?.marker }); addUserToMap(onlineUsersMap.get(userData.userId)); if (conversationsMap.has(userData.userId)) { conversationsMap.get(userData.userId).isOnline = true; renderConversationsList(); } }); socket.on('user disconnected', ({ userId }) => { console.log('[WS] Rcvd user disconnected:', userId); if (onlineUsersMap.has(userId)) onlineUsersMap.get(userId).isOnline = false; removeUserFromMap(userId); if (conversationsMap.has(userId)) { conversationsMap.get(userId).isOnline = false; renderConversationsList(); } if (currentChatTarget?.userId === userId) { addSystemMessageToChat(`${currentChatTarget.username} went offline.`); if(domElements.chatHeaderUsername) domElements.chatHeaderUsername.textContent = `Chat with ${currentChatTarget.username} (Offline)`; } }); socket.on('location updated', ({ userId, latitude, longitude }) => { updateUserLocationOnMap(userId, latitude, longitude); }); socket.on('mode updated', ({ userId, mode }) => { updateUserModeOnMap(userId, mode); }); socket.on('private message', ({ sender, message }) => { console.log('[WS] Rcvd private message from', sender.username); const isChatOpen = domElements.chatWindow?.style.display === 'flex' && currentChatTarget?.userId === sender.userId; if (isChatOpen) { displayChatMessage(sender, message, false); } else if (sender.userId !== getMyUserId()) { const count = unreadSenders.get(sender.userId) || 0; unreadSenders.set(sender.userId, count + 1); updateUnreadBadge(); if (!conversationsMap.has(sender.userId)) conversationsMap.set(sender.userId, { userId: sender.userId, username: sender.username, isOnline: onlineUsersMap.has(sender.userId) && onlineUsersMap.get(sender.userId).isOnline }); renderConversationsList(); } }); socket.on('recipient offline', ({ recipientUserId }) => { if (currentChatTarget?.userId === recipientUserId) addSystemMessageToChat(`${currentChatTarget.username} is offline.`); }); socket.on('chat history response', ({ otherUserId, messages }) => { console.log(`[WS] Rcvd history for ${otherUserId}`); if (currentChatTarget?.userId === otherUserId && domElements.chatMessagesDiv) { const loading = domElements.chatMessagesDiv.querySelector('.system-message'); loading?.remove(); if (messages?.length > 0) messages.forEach(msg => displayChatMessage(msg.sender, msg.message, msg.sender.userId === getMyUserId())); else addSystemMessageToChat("No message history."); domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight; } }); socket.on('history error', ({ otherUserId, error }) => { if (currentChatTarget?.userId === otherUserId) addSystemMessageToChat(`Error loading history: ${error}`); }); socket.on('conversation error', ({error}) => { console.error("Conversation list error:", error); alert("Could not load conversations."); }); }
     function disconnectWebSocket() { if (socket) { console.log("[WS] Disconnecting..."); socket.disconnect(); socket = null; } }
-    function openChatWindow(targetUser) { if (!domElements.chatWindow || !socket) return; console.log("Opening chat with:", targetUser); if (unreadSenders.has(targetUser.userId)) { unreadSenders.delete(targetUser.userId); updateUnreadBadge(); renderConversationsList(); } hideConversationsPanel(); currentChatTarget = targetUser; const isOnline = onlineUsersMap.has(targetUser.userId) && onlineUsersMap.get(targetUser.userId).isOnline; domElements.chatHeaderUsername.textContent = `Chat with ${targetUser.username} (${isOnline ? 'Online' : 'Offline'})`; domElements.chatMessagesDiv.innerHTML = ''; addSystemMessageToChat("Loading history..."); socket.emit('request chat history', { otherUserId: targetUser.userId }); domElements.chatWindow.style.display = 'flex'; domElements.chatMessageInput?.focus(); }
+    function openChatWindow(targetUser, isGroup = false) {
+        if (!domElements.chatWindow || !socket) return;
+        console.log("Opening chat with:", targetUser);
+        
+        if (unreadSenders.has(targetUser.userId)) {
+            unreadSenders.delete(targetUser.userId);
+            updateUnreadBadge();
+            renderConversationsList();
+        }
+        
+        hideConversationsPanel();
+        currentChatTarget = targetUser;
+        currentChatType = isGroup ? 'group' : 'private';
+        currentGroupId = isGroup ? targetUser.groupId : null;
+        
+        const isOnline = onlineUsersMap.has(targetUser.userId) && onlineUsersMap.get(targetUser.userId).isOnline;
+        domElements.chatHeaderUsername.textContent = isGroup ? `Group: ${targetUser.groupName}` : `Chat with ${targetUser.username} (${isOnline ? 'Online' : 'Offline'})`;
+        
+        domElements.chatMessagesDiv.innerHTML = '';
+        addSystemMessageToChat("Loading history...");
+        
+        if (isGroup) {
+            socket.emit('request group chat history', { groupId: targetUser.groupId });
+        } else {
+            socket.emit('request chat history', { otherUserId: targetUser.userId });
+        }
+        
+        domElements.chatWindow.style.display = 'flex';
+        domElements.chatMessageInput?.focus();
+        // Always scroll to bottom when opening chat
+        domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight;
+    }
     function closeChatWindow() { if (domElements.chatWindow) domElements.chatWindow.style.display = 'none'; currentChatTarget = null; domElements.emojiPicker?.classList.remove('show'); }
-    function displayChatMessage(sender, message, isSentByMe) { if (!domElements.chatMessagesDiv) return; const msgDiv = document.createElement('div'); msgDiv.style.cssText = "margin-bottom: 5px; padding: 4px 8px; border-radius: 4px; max-width: 80%; word-wrap: break-word;"; const sanitizedMessage = message.replace(/</g, "<").replace(/>/g, ">").replace(/\n/g, '<br>'); if (isSentByMe) { msgDiv.innerHTML = `<b>You:</b> ${sanitizedMessage}`; msgDiv.style.backgroundColor = '#0056b3'; msgDiv.style.marginLeft = 'auto'; msgDiv.style.textAlign = 'right'; } else { msgDiv.innerHTML = `<b>${sender.username}:</b> ${sanitizedMessage}`; msgDiv.style.backgroundColor = '#555'; msgDiv.style.marginRight = 'auto'; } domElements.chatMessagesDiv.appendChild(msgDiv); domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight; }
-    function addSystemMessageToChat(message) { if (!domElements.chatMessagesDiv) return; const msgDiv = document.createElement('div'); msgDiv.textContent = message; msgDiv.classList.add('system-message'); msgDiv.style.fontStyle = 'italic'; msgDiv.style.color = '#aaa'; msgDiv.style.textAlign = 'center'; msgDiv.style.fontSize = '0.8em'; msgDiv.style.margin = '5px 0'; domElements.chatMessagesDiv.appendChild(msgDiv); domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight; }
+    function displayChatMessage(sender, message, isSentByMe, messageId = null) {
+        if (!domElements.chatMessagesDiv) return;
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'message';
+        if (messageId) {
+            msgDiv.dataset.messageId = messageId;
+        }
+        if (pinnedMessages.has(messageId)) {
+            msgDiv.classList.add('pinned-message');
+        }
+        msgDiv.style.cssText = "margin-bottom: 5px; padding: 4px 8px; border-radius: 4px; max-width: 80%; word-wrap: break-word;";
+        const sanitizedMessage = message.replace(/</g, "<").replace(/>/g, ">").replace(/\n/g, '<br>');
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        // DiceBear avatar URL
+        const avatarSeed = sender.username || sender.userId || 'user';
+        const avatarUrl = `https://avatars.dicebear.com/api/bottts/${encodeURIComponent(avatarSeed)}.svg`;
+        if (isSentByMe) {
+            msgDiv.innerHTML = `
+                <div class="message-content" style="display: flex; align-items: center; justify-content: flex-end;">
+                    <span class="message-text">${sanitizedMessage}</span>
+                    <span class="message-timestamp">${timestamp}</span>
+                    <span class="message-status delivered">✓</span>
+                    <img class="avatar" src="${avatarUrl}" alt="avatar">
+                </div>
+            `;
+            msgDiv.style.backgroundColor = '#0056b3';
+            msgDiv.style.marginLeft = 'auto';
+            msgDiv.style.textAlign = 'right';
+        } else {
+            msgDiv.innerHTML = `
+                <div class="message-content" style="display: flex; align-items: center;">
+                    <img class="avatar" src="${avatarUrl}" alt="avatar">
+                    <b>${sender.username}:</b> <span class="message-text">${sanitizedMessage}</span>
+                    <span class="message-timestamp">${timestamp}</span>
+                </div>
+            `;
+            msgDiv.style.backgroundColor = '#555';
+            msgDiv.style.marginRight = 'auto';
+        }
+        const reactionsContainer = document.createElement('div');
+        reactionsContainer.className = 'message-reactions';
+        msgDiv.appendChild(reactionsContainer);
+        if (messageId) {
+            updateMessageReactions(messageId);
+        }
+        msgDiv.oncontextmenu = (e) => showMessageContextMenu(e, messageId);
+        domElements.chatMessagesDiv.appendChild(msgDiv);
+        // Limit to last MAX_CHAT_MESSAGES
+        const messages = domElements.chatMessagesDiv.querySelectorAll('.message');
+        if (messages.length > MAX_CHAT_MESSAGES) {
+            for (let i = 0; i < messages.length - MAX_CHAT_MESSAGES; i++) {
+                domElements.chatMessagesDiv.removeChild(messages[i]);
+            }
+        }
+        domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight;
+    }
+    function addSystemMessageToChat(message) {
+        if (!domElements.chatMessagesDiv) return;
+        const msgDiv = document.createElement('div');
+        msgDiv.textContent = message;
+        msgDiv.classList.add('system-message');
+        msgDiv.style.fontStyle = 'italic';
+        msgDiv.style.color = '#aaa';
+        msgDiv.style.textAlign = 'center';
+        msgDiv.style.fontSize = '0.8em';
+        msgDiv.style.margin = '5px 0';
+        domElements.chatMessagesDiv.appendChild(msgDiv);
+        // Always scroll to bottom after adding a system message
+        domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight;
+    }
     function sendChatMessage() { if (!socket?.connected || !currentChatTarget || !domElements.chatMessageInput) return; const message = domElements.chatMessageInput.value.trim(); if (!message) return; socket.emit('private message', { recipientUserId: currentChatTarget.userId, message: message }); displayChatMessage({ userId: getMyUserId(), username: localStorage.getItem('loggedInUser') }, message, true); domElements.chatMessageInput.value = ''; domElements.chatMessageInput.focus(); }
     function updateUnreadBadge() { if (!domElements.chatUnreadBadge) return; let total = 0; unreadSenders.forEach(c => total += c); if (total > 0) { domElements.chatUnreadBadge.textContent = total > 9 ? '9+' : total; domElements.chatUnreadBadge.style.display = 'flex'; domElements.chatUnreadBadge.style.alignItems = 'center'; domElements.chatUnreadBadge.style.justifyContent = 'center'; } else { domElements.chatUnreadBadge.style.display = 'none'; } }
     function showConversationsPanel() { if (domElements.conversationsPanel && socket?.connected) { domElements.conversationsPanel.style.display = 'flex'; renderConversationsList(); } }
@@ -152,7 +263,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- MAP FUNCTIONS ---
     // ... (keep initializeMapAndMarkers, getIconForMode, addUserToMap, removeUserFromMap, updateUserLocationOnMap, updateUserModeOnMap, clearAllUserMarkers, updateMarkerPopup, setupSidebarListeners, clearMeetpoint, handleMeetptSelect, calculateDistance, deg2rad, calculateMeetPoint, getPlaceNameFromCoords as they were) ...
-    function initializeMapAndMarkers() { if (map || !domElements.mapContainer) return; console.log("Initializing map..."); map = L.map(domElements.mapContainer).setView([16.30697, 80.43635], 10); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map); map.on('popupopen', (e) => { const meetptButton = e.popup?._contentNode?.querySelector('.select-button'); if (meetptButton) { meetptButton.onclick = () => { const id = parseInt(meetptButton.dataset.userId); if(id) handleMeetptSelect(id); map.closePopup(); }; } const chatButton = e.popup?._contentNode?.querySelector('.chat-button'); if (chatButton) { chatButton.onclick = () => { const id = parseInt(chatButton.dataset.chatUserid); const name = chatButton.dataset.chatUsername; if (id && name) { openChatWindow({ userId: id, username: name }); map.closePopup(); } }; } }); setupSidebarListeners(); }
+    function initializeMapAndMarkers() { 
+        if (map || !domElements.mapContainer) return; 
+        console.log("Initializing map...");
+        // Define tile layers
+        const streetsLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        });
+        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles © Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+        });
+        const satelliteHybridLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles © Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+        });
+
+        // Store layers for switching
+        map = L.map(domElements.mapContainer, {
+            center: [16.30697, 80.43635],
+            zoom: 10,
+            layers: [streetsLayer]
+        });
+        map._customLayers = { 
+            streets: streetsLayer, 
+            satellite: satelliteLayer,
+            'satellite-hybrid': satelliteHybridLayer
+        };
+        map.on('popupopen', (e) => { 
+            const meetptButton = e.popup?._contentNode?.querySelector('.select-button'); 
+            if (meetptButton) { 
+                meetptButton.onclick = () => { 
+                    const id = parseInt(meetptButton.dataset.userId); 
+                    if(id) handleMeetptSelect(id); 
+                    map.closePopup(); 
+                }; 
+            } 
+            const chatButton = e.popup?._contentNode?.querySelector('.chat-button'); 
+            if (chatButton) { 
+                chatButton.onclick = () => { 
+                    const id = parseInt(chatButton.dataset.chatUserid); 
+                    const name = chatButton.dataset.chatUsername; 
+                    if (id && name) { 
+                        openChatWindow({ userId: id, username: name }); 
+                        map.closePopup(); 
+                    } 
+                }; 
+            } 
+        }); 
+        setupSidebarListeners(); 
+    }
     function getIconForMode(mode) { switch (mode) { case 'person': return L.divIcon({ className: 'traveler-icon', html: '👤' }); case 'motorcycle': return L.divIcon({ className: 'traveler-icon', html: '🛵' }); case 'car': return L.divIcon({ className: 'traveler-icon', html: '🚗' }); default: return L.divIcon({ className: 'traveler-icon', html: '❓' }); } }
     function addUserToMap(userData) { if (!map) return; const myUserId = getMyUserId(); const isSelf = userData.userId === myUserId; let existingData = onlineUsersMap.get(userData.userId); if (!existingData) { onlineUsersMap.set(userData.userId, { ...userData, marker: null, isOnline: true }); existingData = onlineUsersMap.get(userData.userId); } else { Object.assign(existingData, userData, {isOnline: true}); } const shouldShowMarker = !(isSelf && ghostModeOn); const hasLocation = existingData.latitude != null && existingData.longitude != null; if (shouldShowMarker && hasLocation) { const latLng = L.latLng(existingData.latitude, existingData.longitude); const icon = getIconForMode(existingData.mode); if (existingData.marker) { existingData.marker.setLatLng(latLng).setIcon(icon); updateMarkerPopup(existingData.marker, existingData); } else { existingData.marker = L.marker(latLng, { icon: icon }).addTo(map); updateMarkerPopup(existingData.marker, existingData); } } else if (existingData.marker) { map.removeLayer(existingData.marker); existingData.marker = null; } }
     function removeUserFromMap(userId) { if (onlineUsersMap.has(userId)) { const data = onlineUsersMap.get(userId); if (data.marker) map.removeLayer(data.marker); if(data) data.marker = null; data.isOnline = false; console.log(`Removed marker for ${userId}.`); if (userId === currentlyMeetingWithId) clearMeetpoint(); } }
@@ -160,7 +318,18 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateUserModeOnMap(userId, mode) { if (onlineUsersMap.has(userId)) { const data = onlineUsersMap.get(userId); data.mode = mode; addUserToMap(data); } }
     function clearAllUserMarkers() { if(map) onlineUsersMap.forEach(d => { if (d.marker) map.removeLayer(d.marker); }); onlineUsersMap.clear(); console.log("Cleared markers & user map state."); }
     function updateMarkerPopup(marker, userData) { if (!marker || !userData) return; const myUserId = getMyUserId(); const isSelf = userData.userId === myUserId; let baseContent = `<b>${userData.username}${isSelf ? ' (You)' : ''}</b>`; let buttonsHtml = ''; const isLoggedIn = !!localStorage.getItem('authToken'); const targetIsOnline = onlineUsersMap.has(userData.userId) && onlineUsersMap.get(userData.userId).isOnline; if (!isSelf && isLoggedIn) { if (locationActive && userData.latitude != null && userLocation.latitude != null) buttonsHtml += `<button class="select-button" data-user-id="${userData.userId}" title="Meetpoint">Meetpt</button>`; buttonsHtml += `<button class="chat-button" data-chat-userid="${userData.userId}" data-chat-username="${userData.username}" title="${targetIsOnline ? 'Chat':'Offline'}" ${!targetIsOnline ? 'disabled':''}>Chat</button>`; } let finalContent = baseContent + (buttonsHtml ? `<br>${buttonsHtml}` : ''); if (currentlyMeetingWithId && (isSelf || userData.userId === currentlyMeetingWithId) && meetpointMarker?.getPopup()) finalContent += `<br>${meetpointMarker.getPopup().getContent()}`; marker.bindPopup(finalContent).update(); }
-    function setupSidebarListeners() { if (domElements.ghostModeCheckbox) { domElements.ghostModeCheckbox.addEventListener('change', function() { ghostModeOn = this.checked; domElements.ghostModeStatus.textContent = ghostModeOn ? 'On' : 'Off'; updateUserLocationOnMap(getMyUserId(), userLocation.latitude, userLocation.longitude); if (ghostModeOn && meetpointMarker) clearMeetpoint(); }); ghostModeOn = domElements.ghostModeCheckbox.checked; domElements.ghostModeStatus.textContent = ghostModeOn ? 'On' : 'Off'; } if (domElements.myLocationButton) { domElements.myLocationButton.addEventListener('change', function() { const myId = getMyUserId(); if (this.checked) { domElements.myLocationStatus.textContent = 'Requesting...'; if (!navigator.geolocation) { alert("Geolocation not supported."); this.checked = false; domElements.myLocationStatus.textContent = 'Off'; return; } navigator.geolocation.getCurrentPosition((pos) => { locationActive = true; domElements.myLocationStatus.textContent = 'On'; userLocation = { latitude: pos.coords.latitude, longitude: pos.coords.longitude }; if (socket?.connected) socket.emit('update location', userLocation); updateUserLocationOnMap(myId, userLocation.latitude, userLocation.longitude); map.setView([userLocation.latitude, userLocation.longitude], Math.max(map.getZoom(), 15)); if (currentlyMeetingWithId) handleMeetptSelect(currentlyMeetingWithId); }, (err) => { locationActive = false; userLocation = { latitude: null, longitude: null }; alert(`Loc Error: ${err.message}`); this.checked = false; domElements.myLocationStatus.textContent = 'Off'; if (socket?.connected) socket.emit('update location', { latitude: null, longitude: null }); updateUserLocationOnMap(myId, null, null); clearMeetpoint(); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }); } else { domElements.myLocationStatus.textContent = 'Off'; locationActive = false; userLocation = { latitude: null, longitude: null }; if (socket?.connected) socket.emit('update location', { latitude: null, longitude: null }); updateUserLocationOnMap(myId, null, null); clearMeetpoint(); } }); } if (domElements.modeSelector) { domElements.modeSelector.addEventListener('change', function() { const mode = this.value; const myId = getMyUserId(); updateUserModeOnMap(myId, mode); if (socket?.connected) socket.emit('update mode', { mode }); }); } }
+    function setupSidebarListeners() { if (domElements.ghostModeCheckbox) { domElements.ghostModeCheckbox.addEventListener('change', function() { ghostModeOn = this.checked; domElements.ghostModeStatus.textContent = ghostModeOn ? 'On' : 'Off'; updateUserLocationOnMap(getMyUserId(), userLocation.latitude, userLocation.longitude); if (ghostModeOn && meetpointMarker) clearMeetpoint(); }); ghostModeOn = domElements.ghostModeCheckbox.checked; domElements.ghostModeStatus.textContent = ghostModeOn ? 'On' : 'Off'; } if (domElements.myLocationButton) { domElements.myLocationButton.addEventListener('change', function() { const myId = getMyUserId(); if (this.checked) { domElements.myLocationStatus.textContent = 'Requesting...'; if (!navigator.geolocation) { alert("Geolocation not supported."); this.checked = false; domElements.myLocationStatus.textContent = 'Off'; return; } navigator.geolocation.getCurrentPosition((pos) => { locationActive = true; domElements.myLocationStatus.textContent = 'On'; userLocation = { latitude: pos.coords.latitude, longitude: pos.coords.longitude }; if (socket?.connected) socket.emit('update location', userLocation); updateUserLocationOnMap(myId, userLocation.latitude, userLocation.longitude); map.setView([userLocation.latitude, userLocation.longitude], Math.max(map.getZoom(), 15)); if (currentlyMeetingWithId) handleMeetptSelect(currentlyMeetingWithId); }, (err) => { locationActive = false; userLocation = { latitude: null, longitude: null }; alert(`Loc Error: ${err.message}`); this.checked = false; domElements.myLocationStatus.textContent = 'Off'; if (socket?.connected) socket.emit('update location', { latitude: null, longitude: null }); updateUserLocationOnMap(myId, null, null); clearMeetpoint(); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }); } else { domElements.myLocationStatus.textContent = 'Off'; locationActive = false; userLocation = { latitude: null, longitude: null }; if (socket?.connected) socket.emit('update location', { latitude: null, longitude: null }); updateUserLocationOnMap(myId, null, null); clearMeetpoint(); } }); } if (domElements.modeSelector) { domElements.modeSelector.addEventListener('change', function() { const mode = this.value; const myId = getMyUserId(); updateUserModeOnMap(myId, mode); if (socket?.connected) socket.emit('update mode', { mode }); }); } if (domElements.mapLayerSelector) {
+            domElements.mapLayerSelector.addEventListener('change', function() {
+                if (!map || !map._customLayers) return;
+                // Remove all layers first
+                Object.values(map._customLayers).forEach(layer => map.removeLayer(layer));
+                // Add the selected layer
+                const selected = this.value;
+                if (map._customLayers[selected]) {
+                    map.addLayer(map._customLayers[selected]);
+                }
+            });
+        } }
     window.clearMeetpoint = function() { if (meetpointMarker) { map.removeLayer(meetpointMarker); meetpointMarker = null; } const oldId = currentlyMeetingWithId; currentlyMeetingWithId = null; const myId = getMyUserId(); const myData = onlineUsersMap.get(myId); if(myData?.marker) updateMarkerPopup(myData.marker, myData); const oldTargetData = onlineUsersMap.get(oldId); if (oldTargetData?.marker) updateMarkerPopup(oldTargetData.marker, oldTargetData); }
     window.handleMeetptSelect = async function(targetUserId) { const myUserId = getMyUserId(); const user = onlineUsersMap.get(myUserId); const target = onlineUsersMap.get(targetUserId); if (!localStorage.getItem('authToken')) return alert("Please log in."); if (!user || !target) return console.error("Meetpoint: User data missing."); if (!locationActive || user.latitude == null ) return alert("Your location not active."); if (target.latitude == null ) return alert(`${target.username}'s location unavailable.`); const prevId = currentlyMeetingWithId; clearMeetpoint(); let coords = calculateMeetPoint(user, target); if (!coords) return console.error("Meetpoint: Calc failed."); let distStr = userLocation.latitude ? `${calculateDistance(userLocation.latitude, userLocation.longitude, coords.latitude, coords.longitude).toFixed(2)} km` : null; meetpointMarker = L.marker([coords.latitude, coords.longitude], { icon: L.divIcon({ className: 'meetpoint-icon', html: '⏳' }) }).addTo(map).bindPopup(`Calculating...`).openPopup(); try { const name = await getPlaceNameFromCoords(coords.latitude, coords.longitude); currentlyMeetingWithId = targetUserId; const popup = `Meetpoint: ${name}`; if (meetpointMarker) { meetpointMarker.setIcon(L.divIcon({ className: 'meetpoint-icon', html: '📍' })); meetpointMarker.setPopupContent(popup); } if (user.marker) updateMarkerPopup(user.marker, user); if (target.marker) updateMarkerPopup(target.marker, target); const prevTarget = onlineUsersMap.get(prevId); if (prevId && prevId !== targetUserId && prevTarget?.marker) updateMarkerPopup(prevTarget.marker, prevTarget); console.log(`Meetpoint: ${name}. Dist: ${distStr || 'N/A'}`); } catch (err) { console.error("Meetpoint Error:", err); if (meetpointMarker) { meetpointMarker.setIcon(L.divIcon({ className: 'meetpoint-icon', html: '❓' })); meetpointMarker.setPopupContent(`Meetpoint: Coords (lookup failed)`); } currentlyMeetingWithId = null; if (user.marker) updateMarkerPopup(user.marker, user); if (target.marker) updateMarkerPopup(target.marker, target); } }
     window.calculateDistance = function(lat1, lon1, lat2, lon2) { const R = 6371; const dLat = deg2rad(lat2 - lat1); const dLon = deg2rad(lon2 - lon1); const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2); const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); return R * c; }
@@ -200,10 +369,94 @@ document.addEventListener('DOMContentLoaded', () => {
     if (domElements.chatBackBtn) domElements.chatBackBtn.addEventListener('click', handleChatBackButtonClick); else console.error("Chat Back Button Not Found!");
     if (domElements.sendChatBtn) domElements.sendChatBtn.addEventListener('click', sendChatMessage); else console.error("Send Chat Button Not Found!");
     if (domElements.chatMessageInput) domElements.chatMessageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }); else console.error("Chat Message Input Not Found!");
-    if (domElements.emojiBtn && domElements.emojiPicker && domElements.chatMessageInput) { domElements.emojiBtn.addEventListener('click', (e) => { e.stopPropagation(); domElements.emojiPicker.classList.toggle('show'); }); domElements.emojiPicker.addEventListener('emoji-click', (e) => { const input = domElements.chatMessageInput; const start = input.selectionStart ?? input.value.length; input.value = input.value.substring(0, start) + e.detail.unicode + input.value.substring(input.selectionEnd ?? start); input.selectionStart = input.selectionEnd = start + e.detail.unicode.length; input.focus(); domElements.emojiPicker.classList.remove('show'); }); document.addEventListener('click', (e) => { if (domElements.emojiPicker && !domElements.emojiPicker.contains(e.target) && e.target !== domElements.emojiBtn) domElements.emojiPicker.classList.remove('show'); }); }
+    // --- Emoji Picker for Message Input ---
+    if (domElements.emojiBtn && domElements.emojiPicker && domElements.chatMessageInput) {
+        domElements.emojiBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            domElements.emojiPicker.classList.toggle('show');
+            domElements.emojiPicker.style.display = domElements.emojiPicker.classList.contains('show') ? 'block' : 'none';
+        });
+        domElements.emojiPicker.addEventListener('emoji-click', (e) => {
+            const input = domElements.chatMessageInput;
+            const start = input.selectionStart ?? input.value.length;
+            input.value = input.value.substring(0, start) + e.detail.unicode + input.value.substring(input.selectionEnd ?? start);
+            input.selectionStart = input.selectionEnd = start + e.detail.unicode.length;
+            input.focus();
+            domElements.emojiPicker.classList.remove('show');
+            domElements.emojiPicker.style.display = 'none';
+        });
+        document.addEventListener('click', (e) => {
+            if (domElements.emojiPicker && !domElements.emojiPicker.contains(e.target) && e.target !== domElements.emojiBtn) {
+                domElements.emojiPicker.classList.remove('show');
+                domElements.emojiPicker.style.display = 'none';
+            }
+        });
+        // Hide by default
+        domElements.emojiPicker.classList.remove('show');
+        domElements.emojiPicker.style.display = 'none';
+    }
 
-    // --- Handler for Chat Back Button ---
-    function handleChatBackButtonClick() { closeChatWindow(); showConversationsPanel(); }
+    // --- Reaction Picker for Message Reactions ---
+    const reactionPicker = document.getElementById('reaction-picker');
+    if (reactionPicker) {
+        reactionPicker.classList.add('hidden');
+        reactionPicker.style.display = 'none';
+    }
+
+    window.showReactionPicker = function(event, messageId) {
+        event.preventDefault();
+        const picker = document.getElementById('reaction-picker');
+        picker.style.left = `${event.clientX}px`;
+        picker.style.top = `${event.clientY}px`;
+        picker.classList.remove('hidden');
+        picker.style.display = 'flex';
+        // Remove previous listeners
+        Array.from(picker.querySelectorAll('.reaction-option')).forEach(button => {
+            button.onclick = null;
+        });
+        picker.querySelectorAll('.reaction-option').forEach(button => {
+            button.onclick = () => {
+                toggleReaction(messageId, button.dataset.reaction);
+                picker.classList.add('hidden');
+                picker.style.display = 'none';
+            };
+        });
+        // Hide picker if click outside
+        const closePicker = (e) => {
+            if (!picker.contains(e.target)) {
+                picker.classList.add('hidden');
+                picker.style.display = 'none';
+                document.removeEventListener('click', closePicker);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closePicker), 0);
+    };
+
+    // --- Theme toggle logic
+    const applyTheme = (theme) => {
+        if (theme === 'light') {
+            document.body.classList.add('light-theme');
+            domElements.themeToggleBtn.textContent = '☀️';
+        } else {
+            document.body.classList.remove('light-theme');
+            domElements.themeToggleBtn.textContent = '🌙';
+        }
+    };
+    // Load theme from localStorage
+    let savedTheme = localStorage.getItem('theme');
+    if (!savedTheme) {
+        savedTheme = 'dark';
+        localStorage.setItem('theme', 'dark');
+    }
+    applyTheme(savedTheme);
+    if (domElements.themeToggleBtn) {
+        domElements.themeToggleBtn.addEventListener('click', () => {
+            const currentTheme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            localStorage.setItem('theme', newTheme);
+            applyTheme(newTheme);
+        });
+    }
 
     // --- Initial Setup Calls ---
     initializeMapAndMarkers();
@@ -212,7 +465,236 @@ document.addEventListener('DOMContentLoaded', () => {
 
     console.log("script.js: Initial setup complete.");
 
+    // Add participants button
+    if (domElements.addParticipantBtn) {
+        domElements.addParticipantBtn.addEventListener('click', () => {
+            document.getElementById('participants-modal').classList.remove('hidden');
+        });
+    }
+    
+    // Close participants modal
+    if (domElements.closeParticipantsModal) {
+        domElements.closeParticipantsModal.addEventListener('click', () => {
+            document.getElementById('participants-modal').classList.add('hidden');
+        });
+    }
+    
+    // File upload button
+    if (domElements.fileUploadBtn) {
+        domElements.fileUploadBtn.addEventListener('click', () => {
+            document.getElementById('file-upload-modal').classList.remove('hidden');
+        });
+    }
+    
+    // Close file upload modal
+    if (domElements.closeFileModal) {
+        domElements.closeFileModal.addEventListener('click', () => {
+            document.getElementById('file-upload-modal').classList.add('hidden');
+        });
+    }
+    
+    // Handle file upload
+    if (domElements.uploadFileBtn) {
+        domElements.uploadFileBtn.addEventListener('click', () => {
+            const fileInput = document.getElementById('file-input');
+            if (fileInput.files.length > 0) {
+                const formData = new FormData();
+                Array.from(fileInput.files).forEach(file => {
+                    formData.append('files', file);
+                });
+                
+                fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    data.files.forEach(file => {
+                        const message = `File: ${file.name} (${file.size} bytes)`;
+                        sendChatMessage(message);
+                    });
+                    document.getElementById('file-upload-modal').classList.add('hidden');
+                })
+                .catch(error => {
+                    console.error('Error uploading files:', error);
+                    addSystemMessageToChat('Error uploading files');
+                });
+            }
+        });
+    }
 }); // End DOMContentLoaded listener
 
 console.log("script.js: Loaded.");
 // --- END OF public/script.js ---
+
+function addReactionToMessage(messageId, reaction, userId) {
+    if (!messageReactions.has(messageId)) {
+        messageReactions.set(messageId, new Map());
+    }
+    
+    const messageReactionsMap = messageReactions.get(messageId);
+    if (!messageReactionsMap.has(reaction)) {
+        messageReactionsMap.set(reaction, new Set());
+    }
+    
+    messageReactionsMap.get(reaction).add(userId);
+    updateMessageReactions(messageId);
+}
+
+function updateMessageReactions(messageId) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!messageElement) return;
+    
+    const reactionsContainer = messageElement.querySelector('.message-reactions');
+    if (!reactionsContainer) return;
+    
+    reactionsContainer.innerHTML = '';
+    const reactions = messageReactions.get(messageId);
+    if (!reactions) return;
+    
+    reactions.forEach((userIds, reaction) => {
+        const reactionElement = document.createElement('span');
+        reactionElement.className = 'reaction';
+        reactionElement.innerHTML = `${reaction} <span class="reaction-count">${userIds.size}</span>`;
+        reactionElement.onclick = () => toggleReaction(messageId, reaction);
+        reactionsContainer.appendChild(reactionElement);
+    });
+}
+
+function toggleReaction(messageId, reaction) {
+    const userId = getMyUserId();
+    const messageReactionsMap = messageReactions.get(messageId);
+    
+    if (messageReactionsMap?.get(reaction)?.has(userId)) {
+        messageReactionsMap.get(reaction).delete(userId);
+        if (messageReactionsMap.get(reaction).size === 0) {
+            messageReactionsMap.delete(reaction);
+        }
+    } else {
+        if (!messageReactionsMap) {
+            messageReactions.set(messageId, new Map());
+        }
+        if (!messageReactions.get(messageId).has(reaction)) {
+            messageReactions.get(messageId).set(reaction, new Set());
+        }
+        messageReactions.get(messageId).get(reaction).add(userId);
+    }
+    
+    socket.emit('update message reaction', {
+        messageId,
+        reaction,
+        userId,
+        add: !messageReactionsMap?.get(reaction)?.has(userId)
+    });
+    
+    updateMessageReactions(messageId);
+}
+
+function showReactionPicker(event, messageId) {
+    const picker = document.getElementById('reaction-picker');
+    picker.style.left = `${event.clientX}px`;
+    picker.style.top = `${event.clientY}px`;
+    picker.classList.remove('hidden');
+    
+    const closePicker = (e) => {
+        if (!picker.contains(e.target)) {
+            picker.classList.add('hidden');
+            document.removeEventListener('click', closePicker);
+        }
+    };
+    
+    document.addEventListener('click', closePicker);
+    
+    picker.querySelectorAll('.reaction-option').forEach(button => {
+        button.onclick = () => {
+            toggleReaction(messageId, button.dataset.reaction);
+            picker.classList.add('hidden');
+        };
+    });
+}
+
+function pinMessage(messageId) {
+    if (pinnedMessages.has(messageId)) {
+        pinnedMessages.delete(messageId);
+    } else {
+        pinnedMessages.add(messageId);
+    }
+    
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (messageElement) {
+        messageElement.classList.toggle('pinned-message');
+    }
+    
+    socket.emit('update pinned message', {
+        messageId,
+        pin: !pinnedMessages.has(messageId)
+    });
+}
+
+function showMessageContextMenu(event, messageId) {
+    event.preventDefault();
+    const menu = document.createElement('div');
+    menu.className = 'message-context-menu';
+    menu.innerHTML = `
+        <div class="context-menu-item" onclick="pinMessage('${messageId}')">📌 ${pinnedMessages.has(messageId) ? 'Unpin' : 'Pin'} Message</div>
+        <div class="context-menu-item" onclick="showReactionPicker(event, '${messageId}')">Add Reaction</div>
+        <div class="context-menu-item" onclick="copyMessageText('${messageId}')">Copy Text</div>
+    `;
+    
+    menu.style.left = `${event.clientX}px`;
+    menu.style.top = `${event.clientY}px`;
+    document.body.appendChild(menu);
+    
+    const closeMenu = (e) => {
+        if (!menu.contains(e.target)) {
+            menu.remove();
+            document.removeEventListener('click', closeMenu);
+        }
+    };
+    
+    document.addEventListener('click', closeMenu);
+}
+
+function copyMessageText(messageId) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (messageElement) {
+        const text = messageElement.querySelector('.message-text').textContent;
+        navigator.clipboard.writeText(text);
+    }
+}
+
+// Update socket event handlers
+socket.on('message reaction updated', ({ messageId, reaction, userId, add }) => {
+    if (!messageReactions.has(messageId)) {
+        messageReactions.set(messageId, new Map());
+    }
+    
+    const messageReactionsMap = messageReactions.get(messageId);
+    if (!messageReactionsMap.has(reaction)) {
+        messageReactionsMap.set(reaction, new Set());
+    }
+    
+    if (add) {
+        messageReactionsMap.get(reaction).add(userId);
+    } else {
+        messageReactionsMap.get(reaction).delete(userId);
+        if (messageReactionsMap.get(reaction).size === 0) {
+            messageReactionsMap.delete(reaction);
+        }
+    }
+    
+    updateMessageReactions(messageId);
+});
+
+socket.on('pinned message updated', ({ messageId, pin }) => {
+    if (pin) {
+        pinnedMessages.add(messageId);
+    } else {
+        pinnedMessages.delete(messageId);
+    }
+    
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (messageElement) {
+        messageElement.classList.toggle('pinned-message', pin);
+    }
+});

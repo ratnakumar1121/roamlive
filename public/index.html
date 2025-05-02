@@ -19,6 +19,7 @@
 
     <!-- Sidebar Controls -->
     <div id="controls-sidebar">
+        <button id="theme-toggle-btn" title="Toggle dark/light theme">🌙</button>
         <label for="nickname">Nickname:</label>
         <input type="text" id="nickname" value="User" readonly> <!-- Nickname set on login -->
         <label for="ghost-mode" class="toggle-label">Ghost Mode:</label>
@@ -27,6 +28,12 @@
         <div class="toggle-container"><label class="toggle-switch"><input type="checkbox" id="my-location-button"><span class="slider"></span></label><span id="my-location-status">Off</span></div>
         <label for="mode">Mode:</label>
         <select id="mode"> <option value="person">Person</option> <option value="motorcycle">Motorcycle</option> <option value="car">Car</option> </select>
+        <label for="map-layer">Map Layer:</label>
+        <select id="map-layer">
+            <option value="streets">Streets</option>
+            <option value="satellite">Satellite</option>
+            <option value="satellite-hybrid">Satellite with Labels</option>
+        </select>
     </div>
 
      <!-- Logged In Status Display -->
@@ -72,16 +79,50 @@
     <!-- Chat Window -->
      <div id="chat-window">
          <div id="chat-header">
-             <button id="chat-back-btn" title="Back to List"><</button> <!-- Back Button -->
+             <button id="chat-back-btn" title="Back to List"><</button>
              <span id="chat-with-username">Chat</span>
-             <button id="close-chat-btn" title="Close Chat">X</button>
+             <div id="chat-actions">
+                 <button id="close-chat-btn" title="Close Chat">X</button>
+             </div>
          </div>
          <div id="chat-messages"></div>
          <div id="chat-input-area">
              <button id="emoji-btn" title="Choose emoji">😊</button>
              <input type="text" id="chat-message-input" placeholder="Type message..." autocomplete="off">
              <button id="send-chat-btn">Send</button>
-             <emoji-picker id="emoji-picker" class="light"></emoji-picker> <!-- Emoji Picker Element -->
+             <emoji-picker id="emoji-picker" class="light"></emoji-picker>
+         </div>
+         <div id="reaction-picker" class="hidden">
+             <button class="reaction-option" data-reaction="👍">👍</button>
+             <button class="reaction-option" data-reaction="❤️">❤️</button>
+             <button class="reaction-option" data-reaction="😂">😂</button>
+             <button class="reaction-option" data-reaction="😮">😮</button>
+             <button class="reaction-option" data-reaction="😢">😢</button>
+             <button class="reaction-option" data-reaction="🙏">🙏</button>
+         </div>
+     </div>
+
+     <!-- Group Chat Participants Modal -->
+     <div id="participants-modal" class="modal hidden">
+         <div class="modal-content">
+             <h3>Chat Participants</h3>
+             <div id="participants-list"></div>
+             <div class="modal-actions">
+                 <button id="add-participant-modal-btn">Add Participant</button>
+                 <button id="close-participants-modal">Close</button>
+             </div>
+         </div>
+     </div>
+
+     <!-- File Upload Modal -->
+     <div id="file-upload-modal" class="modal hidden">
+         <div class="modal-content">
+             <h3>Share File</h3>
+             <input type="file" id="file-input" multiple>
+             <div class="modal-actions">
+                 <button id="upload-file-btn">Upload</button>
+                 <button id="close-file-modal">Cancel</button>
+             </div>
          </div>
      </div>
 
