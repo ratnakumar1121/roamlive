@@ -140,57 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function disconnectWebSocket() { if (socket) { console.log("[WS] Disconnecting..."); socket.disconnect(); socket = null; } }
     function openChatWindow(targetUser) { if (!domElements.chatWindow || !socket) return; console.log("Opening chat with:", targetUser); if (unreadSenders.has(targetUser.userId)) { unreadSenders.delete(targetUser.userId); updateUnreadBadge(); renderConversationsList(); } hideConversationsPanel(); currentChatTarget = targetUser; const isOnline = onlineUsersMap.has(targetUser.userId) && onlineUsersMap.get(targetUser.userId).isOnline; domElements.chatHeaderUsername.textContent = `Chat with ${targetUser.username} (${isOnline ? 'Online' : 'Offline'})`; domElements.chatMessagesDiv.innerHTML = ''; addSystemMessageToChat("Loading history..."); socket.emit('request chat history', { otherUserId: targetUser.userId }); domElements.chatWindow.style.display = 'flex'; domElements.chatMessageInput?.focus(); }
     function closeChatWindow() { if (domElements.chatWindow) domElements.chatWindow.style.display = 'none'; currentChatTarget = null; domElements.emojiPicker?.classList.remove('show'); }
-    // --- Add near the top or inside DOMContentLoaded ---
-const MAX_CHAT_MESSAGES = 30; // Set your desired limit here
-
-// ... other code ...
-
-// === WEBSOCKET / CHAT LOGIC ===
-
-// ... other functions ...
-
-// --- MODIFIED: displayChatMessage to enforce limit ---
-function displayChatMessage(sender, message, isSentByMe) {
-    if (!domElements.chatMessagesDiv) return;
-
-    const shouldScroll = Math.abs(chatMessagesDiv.scrollHeight - chatMessagesDiv.scrollTop - chatMessagesDiv.clientHeight) < 5; // Check if user is near the bottom before adding new message
-
-    const msgDiv = document.createElement('div');
-    msgDiv.style.cssText = "margin-bottom: 5px; padding: 4px 8px; border-radius: 4px; max-width: 80%; word-wrap: break-word;";
-    const sanitizedMessage = message.replace(/</g, "<").replace(/>/g, ">").replace(/\n/g, '<br>'); // Basic sanitization
-
-    if (isSentByMe) {
-        msgDiv.innerHTML = `<b>You:</b> ${sanitizedMessage}`;
-        msgDiv.style.backgroundColor = '#0056b3';
-        msgDiv.style.marginLeft = 'auto';
-        msgDiv.style.textAlign = 'right';
-    } else {
-        msgDiv.innerHTML = `<b>${sender.username}:</b> ${sanitizedMessage}`;
-        msgDiv.style.backgroundColor = '#555';
-        msgDiv.style.marginRight = 'auto';
-    }
-
-    domElements.chatMessagesDiv.appendChild(msgDiv);
-
-    // --- NEW: Enforce message limit ---
-    while (domElements.chatMessagesDiv.childElementCount > MAX_CHAT_MESSAGES) {
-        if (domElements.chatMessagesDiv.firstChild) {
-            domElements.chatMessagesDiv.removeChild(domElements.chatMessagesDiv.firstChild);
-             console.log("Removed oldest chat message to maintain limit."); // Optional debug log
-        } else {
-             break; // Should not happen, but safety break
-        }
-    }
-    // --- End message limit enforcement ---
-
-
-    // Scroll to bottom only if user was already near the bottom
-    if (shouldScroll) {
-        domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight;
-    }
-}
-
-// ... rest of the script ...
+    function displayChatMessage(sender, message, isSentByMe) { if (!domElements.chatMessagesDiv) return; const msgDiv = document.createElement('div'); msgDiv.style.cssText = "margin-bottom: 5px; padding: 4px 8px; border-radius: 4px; max-width: 80%; word-wrap: break-word;"; const sanitizedMessage = message.replace(/</g, "<").replace(/>/g, ">").replace(/\n/g, '<br>'); if (isSentByMe) { msgDiv.innerHTML = `<b>You:</b> ${sanitizedMessage}`; msgDiv.style.backgroundColor = '#0056b3'; msgDiv.style.marginLeft = 'auto'; msgDiv.style.textAlign = 'right'; } else { msgDiv.innerHTML = `<b>${sender.username}:</b> ${sanitizedMessage}`; msgDiv.style.backgroundColor = '#555'; msgDiv.style.marginRight = 'auto'; } domElements.chatMessagesDiv.appendChild(msgDiv); domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight; }
     function addSystemMessageToChat(message) { if (!domElements.chatMessagesDiv) return; const msgDiv = document.createElement('div'); msgDiv.textContent = message; msgDiv.classList.add('system-message'); msgDiv.style.fontStyle = 'italic'; msgDiv.style.color = '#aaa'; msgDiv.style.textAlign = 'center'; msgDiv.style.fontSize = '0.8em'; msgDiv.style.margin = '5px 0'; domElements.chatMessagesDiv.appendChild(msgDiv); domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight; }
     function sendChatMessage() { if (!socket?.connected || !currentChatTarget || !domElements.chatMessageInput) return; const message = domElements.chatMessageInput.value.trim(); if (!message) return; socket.emit('private message', { recipientUserId: currentChatTarget.userId, message: message }); displayChatMessage({ userId: getMyUserId(), username: localStorage.getItem('loggedInUser') }, message, true); domElements.chatMessageInput.value = ''; domElements.chatMessageInput.focus(); }
     function updateUnreadBadge() { if (!domElements.chatUnreadBadge) return; let total = 0; unreadSenders.forEach(c => total += c); if (total > 0) { domElements.chatUnreadBadge.textContent = total > 9 ? '9+' : total; domElements.chatUnreadBadge.style.display = 'flex'; domElements.chatUnreadBadge.style.alignItems = 'center'; domElements.chatUnreadBadge.style.justifyContent = 'center'; } else { domElements.chatUnreadBadge.style.display = 'none'; } }
