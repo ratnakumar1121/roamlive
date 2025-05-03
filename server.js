@@ -208,6 +208,58 @@ io.on('connection', (socket) => {
             if (client) client.release();
         }
     });
+    // Add inside io.on('connection', (socket) => { ... })
+    socket.on('request conversations', async () => {
+        const userId = socket.user.userId;
+        let client;
+        try {
+            client = await pool.connect();
+            // Get all unique partner user IDs
+            const result = await client.query(`
+                SELECT DISTINCT
+                    CASE
+                        WHEN sender_id = $1 THEN recipient_id
+                        ELSE sender_id
+                    END AS partner_id
+                FROM chat_messages
+                WHERE sender_id = $1 OR recipient_id = $1
+            `, [userId]);
+
+            // Fetch usernames for all partners
+            const partnerIds = result.rows.map(row => row.partner_id);
+            let partners = [];
+            if (partnerIds.length > 0) {
+                const usersResult = await client.query(
+                    `SELECT id, username FROM users WHERE id = ANY($1)`,
+                    [partnerIds]
+                );
+                partners = usersResult.rows;
+            }
+
+            // Optionally, add online status
+            partners = partners.map(p => ({
+                userId: p.id,
+                username: p.username,
+                isOnline: isUserOnline(p.id)
+            }));
+
+            socket.emit('conversation list response', partners);
+        } catch (error) {
+            console.error('Error fetching conversations:', error);
+            socket.emit('conversation error', { error: 'Failed to load conversations.' });
+        } finally {
+            if (client) client.release();
+        }
+    });
+
+    // Message read receipts
+    socket.on('messages read', ({ messageIds, fromUserId, toUserId }) => {
+        // Find the recipient's socket
+        const recipientSocketId = getUserSocketId(toUserId);
+        if (recipientSocketId) {
+            io.to(recipientSocketId).emit('message read', { messageIds });
+        }
+    });
 });
 
 // === HTTP API Routes ===

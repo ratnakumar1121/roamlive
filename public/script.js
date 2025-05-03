@@ -18,6 +18,8 @@ let currentChatType = 'private'; // 'private' or 'group'
 let currentGroupId = null;
 let messageReactions = new Map();
 let pinnedMessages = new Set();
+let ghostMarker = null;
+let readMessages = new Set();
 
 // === UTILITY ===
 const getMyUserId = () => parseInt(localStorage.getItem('loggedInUserId') || '-1');
@@ -119,8 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (domElements.loginMessageEl) domElements.loginMessageEl.textContent = '';
         }
 
-    function updateLoginState() { /* ... as before ... */ }
-    function updateLoginState() { console.log("[Auth] Updating login state UI..."); const token = localStorage.getItem('authToken'); const username = localStorage.getItem('loggedInUser'); const userId = localStorage.getItem('loggedInUserId'); const isLoggedIn = token && username && userId && userId !== '-1'; if (domElements.authContainer) domElements.authContainer.style.display = isLoggedIn ? 'none' : 'block'; if (domElements.userStatusEl) domElements.userStatusEl.style.display = isLoggedIn ? 'block' : 'none'; if (domElements.globalChatToggle) domElements.globalChatToggle.style.display = isLoggedIn ? 'block' : 'none'; if (domElements.loggedInUsernameEl && isLoggedIn) domElements.loggedInUsernameEl.textContent = username; if (domElements.nicknameInput && isLoggedIn) domElements.nicknameInput.value = username; if (isLoggedIn) { if (!socket?.connected) connectWebSocket(token); } else { if(domElements.signupContainer) domElements.signupContainer.style.display = 'none'; if(domElements.loginContainer) domElements.loginContainer.style.display = 'block'; disconnectWebSocket(); closeChatWindow(); hideConversationsPanel(); clearAllUserMarkers(); unreadSenders.clear(); updateUnreadBadge(); onlineUsersMap.clear(); conversationsMap.clear(); if (map) clearMeetpoint(); } if (domElements.signupMessageEl) domElements.signupMessageEl.textContent = ''; if (domElements.loginMessageEl) domElements.loginMessageEl.textContent = ''; }
+    function updateLoginState() { console.log("[Auth] Updating login state UI..."); const token = localStorage.getItem('authToken'); const username = localStorage.getItem('loggedInUser'); const userId = localStorage.getItem('loggedInUserId'); const isLoggedIn = token && username && userId && userId !== '-1'; if (domElements.authContainer) domElements.authContainer.style.display = isLoggedIn ? 'none' : 'block'; if (domElements.userStatusEl) domElements.userStatusEl.style.display = isLoggedIn ? 'block' : 'none'; if (domElements.globalChatToggle) domElements.globalChatToggle.style.display = isLoggedIn ? 'block' : 'none'; if (domElements.loggedInUsernameEl && isLoggedIn) domElements.loggedInUsernameEl.textContent = username; if (domElements.nicknameInput && isLoggedIn) domElements.nicknameInput.value = username; if (isLoggedIn) { if (!socket?.connected) connectWebSocket(token); socket.emit('request conversations'); } else { if(domElements.signupContainer) domElements.signupContainer.style.display = 'none'; if(domElements.loginContainer) domElements.loginContainer.style.display = 'block'; disconnectWebSocket(); closeChatWindow(); hideConversationsPanel(); clearAllUserMarkers(); unreadSenders.clear(); updateUnreadBadge(); onlineUsersMap.clear(); conversationsMap.clear(); if (map) clearMeetpoint(); } if (domElements.signupMessageEl) domElements.signupMessageEl.textContent = ''; if (domElements.loginMessageEl) domElements.loginMessageEl.textContent = ''; }
 
     async function handleAuthFormSubmit(event, url) {
         event.preventDefault();
@@ -181,6 +182,19 @@ document.addEventListener('DOMContentLoaded', () => {
         domElements.chatMessageInput?.focus();
         // Always scroll to bottom when opening chat
         domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight;
+        // After a short delay, mark all messages as read
+        setTimeout(() => {
+            const unreadMsgIds = Array.from(domElements.chatMessagesDiv.querySelectorAll('.message[data-message-id]'))
+                .filter(div => {
+                    const sender = div.querySelector('b')?.textContent?.replace(':', '').trim();
+                    return sender === targetUser.username && !readMessages.has(div.dataset.messageId);
+                })
+                .map(div => div.dataset.messageId);
+            if (unreadMsgIds.length > 0 && socket) {
+                socket.emit('messages read', { messageIds: unreadMsgIds, fromUserId: getMyUserId(), toUserId: targetUser.userId });
+                unreadMsgIds.forEach(id => readMessages.add(id));
+            }
+        }, 500);
     }
     function closeChatWindow() { if (domElements.chatWindow) domElements.chatWindow.style.display = 'none'; currentChatTarget = null; domElements.emojiPicker?.classList.remove('show'); }
     function displayChatMessage(sender, message, isSentByMe, messageId = null) {
@@ -199,12 +213,21 @@ document.addEventListener('DOMContentLoaded', () => {
         // DiceBear avatar URL
         const avatarSeed = sender.username || sender.userId || 'user';
         const avatarUrl = `https://avatars.dicebear.com/api/bottts/${encodeURIComponent(avatarSeed)}.svg`;
+        let statusHtml = '';
         if (isSentByMe) {
+            // Show double checkmark if read, single if not
+            let statusClass = '';
+            if (messageId && readMessages.has(messageId)) {
+                statusHtml = '<span class="message-status read">✓✓</span>';
+                statusClass = 'read';
+            } else {
+                statusHtml = '<span class="message-status delivered">✓</span>';
+            }
             msgDiv.innerHTML = `
                 <div class="message-content" style="display: flex; align-items: center; justify-content: flex-end;">
                     <span class="message-text">${sanitizedMessage}</span>
                     <span class="message-timestamp">${timestamp}</span>
-                    <span class="message-status delivered">✓</span>
+                    ${statusHtml}
                     <img class="avatar" src="${avatarUrl}" alt="avatar">
                 </div>
             `;
@@ -318,7 +341,119 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateUserModeOnMap(userId, mode) { if (onlineUsersMap.has(userId)) { const data = onlineUsersMap.get(userId); data.mode = mode; addUserToMap(data); } }
     function clearAllUserMarkers() { if(map) onlineUsersMap.forEach(d => { if (d.marker) map.removeLayer(d.marker); }); onlineUsersMap.clear(); console.log("Cleared markers & user map state."); }
     function updateMarkerPopup(marker, userData) { if (!marker || !userData) return; const myUserId = getMyUserId(); const isSelf = userData.userId === myUserId; let baseContent = `<b>${userData.username}${isSelf ? ' (You)' : ''}</b>`; let buttonsHtml = ''; const isLoggedIn = !!localStorage.getItem('authToken'); const targetIsOnline = onlineUsersMap.has(userData.userId) && onlineUsersMap.get(userData.userId).isOnline; if (!isSelf && isLoggedIn) { if (locationActive && userData.latitude != null && userLocation.latitude != null) buttonsHtml += `<button class="select-button" data-user-id="${userData.userId}" title="Meetpoint">Meetpt</button>`; buttonsHtml += `<button class="chat-button" data-chat-userid="${userData.userId}" data-chat-username="${userData.username}" title="${targetIsOnline ? 'Chat':'Offline'}" ${!targetIsOnline ? 'disabled':''}>Chat</button>`; } let finalContent = baseContent + (buttonsHtml ? `<br>${buttonsHtml}` : ''); if (currentlyMeetingWithId && (isSelf || userData.userId === currentlyMeetingWithId) && meetpointMarker?.getPopup()) finalContent += `<br>${meetpointMarker.getPopup().getContent()}`; marker.bindPopup(finalContent).update(); }
-    function setupSidebarListeners() { if (domElements.ghostModeCheckbox) { domElements.ghostModeCheckbox.addEventListener('change', function() { ghostModeOn = this.checked; domElements.ghostModeStatus.textContent = ghostModeOn ? 'On' : 'Off'; updateUserLocationOnMap(getMyUserId(), userLocation.latitude, userLocation.longitude); if (ghostModeOn && meetpointMarker) clearMeetpoint(); }); ghostModeOn = domElements.ghostModeCheckbox.checked; domElements.ghostModeStatus.textContent = ghostModeOn ? 'On' : 'Off'; } if (domElements.myLocationButton) { domElements.myLocationButton.addEventListener('change', function() { const myId = getMyUserId(); if (this.checked) { domElements.myLocationStatus.textContent = 'Requesting...'; if (!navigator.geolocation) { alert("Geolocation not supported."); this.checked = false; domElements.myLocationStatus.textContent = 'Off'; return; } navigator.geolocation.getCurrentPosition((pos) => { locationActive = true; domElements.myLocationStatus.textContent = 'On'; userLocation = { latitude: pos.coords.latitude, longitude: pos.coords.longitude }; if (socket?.connected) socket.emit('update location', userLocation); updateUserLocationOnMap(myId, userLocation.latitude, userLocation.longitude); map.setView([userLocation.latitude, userLocation.longitude], Math.max(map.getZoom(), 15)); if (currentlyMeetingWithId) handleMeetptSelect(currentlyMeetingWithId); }, (err) => { locationActive = false; userLocation = { latitude: null, longitude: null }; alert(`Loc Error: ${err.message}`); this.checked = false; domElements.myLocationStatus.textContent = 'Off'; if (socket?.connected) socket.emit('update location', { latitude: null, longitude: null }); updateUserLocationOnMap(myId, null, null); clearMeetpoint(); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }); } else { domElements.myLocationStatus.textContent = 'Off'; locationActive = false; userLocation = { latitude: null, longitude: null }; if (socket?.connected) socket.emit('update location', { latitude: null, longitude: null }); updateUserLocationOnMap(myId, null, null); clearMeetpoint(); } }); } if (domElements.modeSelector) { domElements.modeSelector.addEventListener('change', function() { const mode = this.value; const myId = getMyUserId(); updateUserModeOnMap(myId, mode); if (socket?.connected) socket.emit('update mode', { mode }); }); } if (domElements.mapLayerSelector) {
+    function setupSidebarListeners() {
+        if (domElements.ghostModeCheckbox) {
+            domElements.ghostModeCheckbox.addEventListener('change', function() {
+                ghostModeOn = this.checked;
+                domElements.ghostModeStatus.textContent = ghostModeOn ? 'On' : 'Off';
+                const myId = getMyUserId();
+                if (ghostModeOn) {
+                    // Stop sending location, send null to server
+                    locationActive = false;
+                    if (socket?.connected) socket.emit('update location', { latitude: null, longitude: null });
+                    updateUserLocationOnMap(myId, null, null);
+                    clearMeetpoint();
+                    // Show ghost marker for yourself if you have a last known location
+                    if (userLocation.latitude && userLocation.longitude && map) {
+                        if (ghostMarker) map.removeLayer(ghostMarker);
+                        ghostMarker = L.marker([userLocation.latitude, userLocation.longitude], {
+                            icon: L.divIcon({ className: 'traveler-icon', html: '👻' })
+                        }).addTo(map);
+                    }
+                } else {
+                    // Remove ghost marker
+                    if (ghostMarker && map) {
+                        map.removeLayer(ghostMarker);
+                        ghostMarker = null;
+                    }
+                    // Resume sending location if My Location is enabled
+                    if (domElements.myLocationButton && domElements.myLocationButton.checked) {
+                        if (!navigator.geolocation) {
+                            alert("Geolocation not supported.");
+                            domElements.myLocationButton.checked = false;
+                            domElements.myLocationStatus.textContent = 'Off';
+                            return;
+                        }
+                        domElements.myLocationStatus.textContent = 'Requesting...';
+                        navigator.geolocation.getCurrentPosition((pos) => {
+                            locationActive = true;
+                            domElements.myLocationStatus.textContent = 'On';
+                            userLocation = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+                            if (socket?.connected) socket.emit('update location', userLocation);
+                            updateUserLocationOnMap(myId, userLocation.latitude, userLocation.longitude);
+                            map.setView([userLocation.latitude, userLocation.longitude], Math.max(map.getZoom(), 15));
+                            if (currentlyMeetingWithId) handleMeetptSelect(currentlyMeetingWithId);
+                        }, (err) => {
+                            locationActive = false;
+                            userLocation = { latitude: null, longitude: null };
+                            alert(`Loc Error: ${err.message}`);
+                            domElements.myLocationButton.checked = false;
+                            domElements.myLocationStatus.textContent = 'Off';
+                            if (socket?.connected) socket.emit('update location', { latitude: null, longitude: null });
+                            updateUserLocationOnMap(myId, null, null);
+                            clearMeetpoint();
+                        }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                    } else {
+                        domElements.myLocationStatus.textContent = 'Off';
+                        locationActive = false;
+                        userLocation = { latitude: null, longitude: null };
+                        if (socket?.connected) socket.emit('update location', { latitude: null, longitude: null });
+                        updateUserLocationOnMap(myId, null, null);
+                        clearMeetpoint();
+                    }
+                }
+            });
+            ghostModeOn = domElements.ghostModeCheckbox.checked;
+            domElements.ghostModeStatus.textContent = ghostModeOn ? 'On' : 'Off';
+        }
+        if (domElements.myLocationButton) {
+            domElements.myLocationButton.addEventListener('change', function() {
+                const myId = getMyUserId();
+                if (this.checked) {
+                    domElements.myLocationStatus.textContent = 'Requesting...';
+                    if (!navigator.geolocation) {
+                        alert("Geolocation not supported.");
+                        this.checked = false;
+                        domElements.myLocationStatus.textContent = 'Off';
+                        return;
+                    }
+                    navigator.geolocation.getCurrentPosition((pos) => {
+                        locationActive = true;
+                        domElements.myLocationStatus.textContent = 'On';
+                        userLocation = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+                        if (socket?.connected) socket.emit('update location', userLocation);
+                        updateUserLocationOnMap(myId, userLocation.latitude, userLocation.longitude);
+                        map.setView([userLocation.latitude, userLocation.longitude], Math.max(map.getZoom(), 15));
+                        if (currentlyMeetingWithId) handleMeetptSelect(currentlyMeetingWithId);
+                    }, (err) => {
+                        locationActive = false;
+                        userLocation = { latitude: null, longitude: null };
+                        alert(`Loc Error: ${err.message}`);
+                        this.checked = false;
+                        domElements.myLocationStatus.textContent = 'Off';
+                        if (socket?.connected) socket.emit('update location', { latitude: null, longitude: null });
+                        updateUserLocationOnMap(myId, null, null);
+                        clearMeetpoint();
+                    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                } else {
+                    domElements.myLocationStatus.textContent = 'Off';
+                    locationActive = false;
+                    userLocation = { latitude: null, longitude: null };
+                    if (socket?.connected) socket.emit('update location', { latitude: null, longitude: null });
+                    updateUserLocationOnMap(myId, null, null);
+                    clearMeetpoint();
+                }
+            });
+        }
+        if (domElements.modeSelector) {
+            domElements.modeSelector.addEventListener('change', function() {
+                const mode = this.value;
+                const myId = getMyUserId();
+                updateUserModeOnMap(myId, mode);
+                if (socket?.connected) socket.emit('update mode', { mode });
+            });
+        }
+        if (domElements.mapLayerSelector) {
             domElements.mapLayerSelector.addEventListener('change', function() {
                 if (!map || !map._customLayers) return;
                 // Remove all layers first
@@ -329,7 +464,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     map.addLayer(map._customLayers[selected]);
                 }
             });
-        } }
+        }
+    }
     window.clearMeetpoint = function() { if (meetpointMarker) { map.removeLayer(meetpointMarker); meetpointMarker = null; } const oldId = currentlyMeetingWithId; currentlyMeetingWithId = null; const myId = getMyUserId(); const myData = onlineUsersMap.get(myId); if(myData?.marker) updateMarkerPopup(myData.marker, myData); const oldTargetData = onlineUsersMap.get(oldId); if (oldTargetData?.marker) updateMarkerPopup(oldTargetData.marker, oldTargetData); }
     window.handleMeetptSelect = async function(targetUserId) { const myUserId = getMyUserId(); const user = onlineUsersMap.get(myUserId); const target = onlineUsersMap.get(targetUserId); if (!localStorage.getItem('authToken')) return alert("Please log in."); if (!user || !target) return console.error("Meetpoint: User data missing."); if (!locationActive || user.latitude == null ) return alert("Your location not active."); if (target.latitude == null ) return alert(`${target.username}'s location unavailable.`); const prevId = currentlyMeetingWithId; clearMeetpoint(); let coords = calculateMeetPoint(user, target); if (!coords) return console.error("Meetpoint: Calc failed."); let distStr = userLocation.latitude ? `${calculateDistance(userLocation.latitude, userLocation.longitude, coords.latitude, coords.longitude).toFixed(2)} km` : null; meetpointMarker = L.marker([coords.latitude, coords.longitude], { icon: L.divIcon({ className: 'meetpoint-icon', html: '⏳' }) }).addTo(map).bindPopup(`Calculating...`).openPopup(); try { const name = await getPlaceNameFromCoords(coords.latitude, coords.longitude); currentlyMeetingWithId = targetUserId; const popup = `Meetpoint: ${name}`; if (meetpointMarker) { meetpointMarker.setIcon(L.divIcon({ className: 'meetpoint-icon', html: '📍' })); meetpointMarker.setPopupContent(popup); } if (user.marker) updateMarkerPopup(user.marker, user); if (target.marker) updateMarkerPopup(target.marker, target); const prevTarget = onlineUsersMap.get(prevId); if (prevId && prevId !== targetUserId && prevTarget?.marker) updateMarkerPopup(prevTarget.marker, prevTarget); console.log(`Meetpoint: ${name}. Dist: ${distStr || 'N/A'}`); } catch (err) { console.error("Meetpoint Error:", err); if (meetpointMarker) { meetpointMarker.setIcon(L.divIcon({ className: 'meetpoint-icon', html: '❓' })); meetpointMarker.setPopupContent(`Meetpoint: Coords (lookup failed)`); } currentlyMeetingWithId = null; if (user.marker) updateMarkerPopup(user.marker, user); if (target.marker) updateMarkerPopup(target.marker, target); } }
     window.calculateDistance = function(lat1, lon1, lat2, lon2) { const R = 6371; const dLat = deg2rad(lat2 - lat1); const dLon = deg2rad(lon2 - lon1); const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2); const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); return R * c; }
@@ -698,3 +834,22 @@ socket.on('pinned message updated', ({ messageId, pin }) => {
         messageElement.classList.toggle('pinned-message', pin);
     }
 });
+
+// Listen for message read events from the server
+if (typeof socket !== 'undefined' && socket) {
+    socket.on('message read', ({ messageIds }) => {
+        messageIds.forEach(id => readMessages.add(id));
+        // Update checkmarks for displayed messages
+        messageIds.forEach(id => {
+            const msgDiv = document.querySelector(`.message[data-message-id="${id}"]`);
+            if (msgDiv) {
+                const statusSpan = msgDiv.querySelector('.message-status');
+                if (statusSpan) {
+                    statusSpan.textContent = '✓✓';
+                    statusSpan.classList.remove('delivered');
+                    statusSpan.classList.add('read');
+                }
+            }
+        });
+    });
+}
