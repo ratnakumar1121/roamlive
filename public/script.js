@@ -20,6 +20,7 @@ let messageReactions = new Map();
 let pinnedMessages = new Set();
 let ghostMarker = null;
 let readMessages = new Set();
+let domElements; // <-- Make domElements global
 
 // === UTILITY ===
 const getMyUserId = () => parseInt(localStorage.getItem('loggedInUserId') || '-1');
@@ -29,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log("script.js: DOMContentLoaded event fired.");
 
     // --- Cache DOM Elements FIRST ---
-    const domElements = {
+    domElements = { // <-- assign to global
         mapContainer: document.getElementById('map'),
         signupFormEl: document.querySelector('#signup-form form'), // <-- Check if this is found
         loginFormEl: document.querySelector('#login-form form'),   // <-- Check if this is found
@@ -69,7 +70,9 @@ document.addEventListener('DOMContentLoaded', () => {
         fileUploadBtn: document.getElementById('file-upload-btn'),
         closeFileModal: document.getElementById('close-file-modal'),
         uploadFileBtn: document.getElementById('upload-file-btn'),
-        themeToggleBtn: document.getElementById('theme-toggle-btn')
+        themeToggleBtn: document.getElementById('theme-toggle-btn'),
+        pinnedMessagesList: document.getElementById('pinned-messages-list'),
+        messageSearchInput: document.getElementById('message-search')
     };
 
     // --- DEBUG: Log found elements ---
@@ -86,6 +89,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!domElements.mapContainer) { console.error("CRITICAL ERROR: Map container #map not found!"); alert("Error: Map container not found in HTML!"); return; }
     if (!domElements.authContainer) console.warn("Auth container #auth-container not found!");
 
+    // Hide chat window and chat icon by default on page load
+    if (domElements.chatWindow) domElements.chatWindow.style.display = 'none';
+    if (domElements.globalChatToggle) domElements.globalChatToggle.style.display = 'none';
 
     // === FUNCTION DEFINITIONS ===
 
@@ -195,72 +201,41 @@ document.addEventListener('DOMContentLoaded', () => {
                 unreadMsgIds.forEach(id => readMessages.add(id));
             }
         }, 500);
+        if (domElements.conversationsPanel) domElements.conversationsPanel.style.display = 'none';
+        showChatIconIfAllClosed();
     }
     function closeChatWindow() { if (domElements.chatWindow) domElements.chatWindow.style.display = 'none'; currentChatTarget = null; domElements.emojiPicker?.classList.remove('show'); }
     function displayChatMessage(sender, message, isSentByMe, messageId = null) {
         if (!domElements.chatMessagesDiv) return;
         const msgDiv = document.createElement('div');
-        msgDiv.className = 'message';
+        msgDiv.className = 'message' + (isSentByMe ? ' sent-message' : ' received-message');
         if (messageId) {
             msgDiv.dataset.messageId = messageId;
         }
-        if (pinnedMessages.has(messageId)) {
-            msgDiv.classList.add('pinned-message');
-        }
-        msgDiv.style.cssText = "margin-bottom: 5px; padding: 4px 8px; border-radius: 4px; max-width: 80%; word-wrap: break-word;";
-        const sanitizedMessage = message.replace(/</g, "<").replace(/>/g, ">").replace(/\n/g, '<br>');
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        // DiceBear avatar URL
-        const avatarSeed = sender.username || sender.userId || 'user';
-        const avatarUrl = `https://avatars.dicebear.com/api/bottts/${encodeURIComponent(avatarSeed)}.svg`;
         let statusHtml = '';
         if (isSentByMe) {
-            // Show double checkmark if read, single if not
-            let statusClass = '';
-            if (messageId && readMessages.has(messageId)) {
-                statusHtml = '<span class="message-status read">✓✓</span>';
-                statusClass = 'read';
-            } else {
-                statusHtml = '<span class="message-status delivered">✓</span>';
-            }
-            msgDiv.innerHTML = `
-                <div class="message-content" style="display: flex; align-items: center; justify-content: flex-end;">
-                    <span class="message-text">${sanitizedMessage}</span>
-                    <span class="message-timestamp">${timestamp}</span>
-                    ${statusHtml}
-                    <img class="avatar" src="${avatarUrl}" alt="avatar">
-                </div>
-            `;
-            msgDiv.style.backgroundColor = '#0056b3';
-            msgDiv.style.marginLeft = 'auto';
-            msgDiv.style.textAlign = 'right';
-        } else {
-            msgDiv.innerHTML = `
-                <div class="message-content" style="display: flex; align-items: center;">
-                    <img class="avatar" src="${avatarUrl}" alt="avatar">
-                    <b>${sender.username}:</b> <span class="message-text">${sanitizedMessage}</span>
-                    <span class="message-timestamp">${timestamp}</span>
-                </div>
-            `;
-            msgDiv.style.backgroundColor = '#555';
-            msgDiv.style.marginRight = 'auto';
+            statusHtml = '<span class="message-status delivered">✓</span>';
         }
-        const reactionsContainer = document.createElement('div');
-        reactionsContainer.className = 'message-reactions';
-        msgDiv.appendChild(reactionsContainer);
+        msgDiv.innerHTML = `
+            <div class="message-content" style="padding:0;">
+                <div class="message-body" style="padding:0;">
+                    <div class="message-header" style="margin-bottom:0;">
+                        <span class="message-sender">${sender.username}</span>
+                        <span class="message-time">${timestamp}</span>
+                    </div>
+                    <div class="message-text">${message}</div>
+                    <div class="message-reactions"></div>
+                </div>
+                ${statusHtml}
+            </div>
+        `;
+        msgDiv.oncontextmenu = (e) => showMessageContextMenu(e, messageId);
+        domElements.chatMessagesDiv.appendChild(msgDiv);
+        domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight;
         if (messageId) {
             updateMessageReactions(messageId);
         }
-        msgDiv.oncontextmenu = (e) => showMessageContextMenu(e, messageId);
-        domElements.chatMessagesDiv.appendChild(msgDiv);
-        // Limit to last MAX_CHAT_MESSAGES
-        const messages = domElements.chatMessagesDiv.querySelectorAll('.message');
-        if (messages.length > MAX_CHAT_MESSAGES) {
-            for (let i = 0; i < messages.length - MAX_CHAT_MESSAGES; i++) {
-                domElements.chatMessagesDiv.removeChild(messages[i]);
-            }
-        }
-        domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight;
     }
     function addSystemMessageToChat(message) {
         if (!domElements.chatMessagesDiv) return;
@@ -281,8 +256,61 @@ document.addEventListener('DOMContentLoaded', () => {
     function showConversationsPanel() { if (domElements.conversationsPanel && socket?.connected) { domElements.conversationsPanel.style.display = 'flex'; renderConversationsList(); } }
     function hideConversationsPanel() { if (domElements.conversationsPanel) domElements.conversationsPanel.style.display = 'none'; }
     function toggleConversationsPanel() { if (domElements.conversationsPanel) { if (domElements.conversationsPanel.style.display === 'flex') hideConversationsPanel(); else showConversationsPanel(); } }
-    function renderConversationsList() { if (!domElements.conversationsList) return; domElements.conversationsList.innerHTML = ''; const myUserId = getMyUserId(); conversationsMap.forEach(convData => { const onlineData = onlineUsersMap.get(convData.userId); convData.isOnline = onlineData?.isOnline ?? false; }); const sortedUsers = Array.from(conversationsMap.values()).sort((a, b) => { if (a.isOnline && !b.isOnline) return -1; if (!a.isOnline && b.isOnline) return 1; return a.username.localeCompare(b.username); }); if (sortedUsers.length === 0) { const noConvMsg = document.createElement('li'); noConvMsg.textContent = "No conversations yet."; noConvMsg.style.cssText = "padding: 10px; text-align: center; color: #aaa; font-size: 0.9em;"; domElements.conversationsList.appendChild(noConvMsg); return; } sortedUsers.forEach(convData => { if (convData.userId === myUserId) return; const listItem = document.createElement('li'); listItem.className = 'conversation-item'; listItem.dataset.userId = convData.userId; const nameSpan = document.createElement('span'); nameSpan.textContent = convData.username; const unreadCount = unreadSenders.get(convData.userId) || 0; if (unreadCount > 0) { const unreadBadge = document.createElement('span'); unreadBadge.textContent = unreadCount > 9 ? '9+' : unreadCount; unreadBadge.style.cssText = "background-color: red; color: white; border-radius: 50%; padding: 1px 5px; font-size: 10px; margin-left: 8px; font-weight: bold;"; nameSpan.appendChild(unreadBadge); } const statusIndicator = document.createElement('span'); statusIndicator.className = `online-status-indicator ${convData.isOnline ? 'online' : ''}`; listItem.append(nameSpan, statusIndicator); listItem.addEventListener('click', () => openChatWindow({ userId: convData.userId, username: convData.username })); domElements.conversationsList.appendChild(listItem); }); }
-    function handleChatBackButtonClick() { closeChatWindow(); showConversationsPanel(); }
+    function renderConversationsList() {
+        const list = document.getElementById('conversations-list');
+        if (!list) return;
+        list.innerHTML = '';
+        const myUserId = getMyUserId();
+        const sortedUsers = Array.from(conversationsMap.values()).sort((a, b) => {
+            if (a.isOnline && !b.isOnline) return -1;
+            if (!a.isOnline && b.isOnline) return 1;
+            return a.username.localeCompare(b.username);
+        });
+        if (sortedUsers.length === 0) {
+            const noConvMsg = document.createElement('li');
+            noConvMsg.textContent = "No conversations yet.";
+            noConvMsg.style.cssText = "padding: 10px; text-align: center; color: #aaa; font-size: 0.9em;";
+            list.appendChild(noConvMsg);
+            return;
+        }
+        sortedUsers.forEach(convData => {
+            if (convData.userId === myUserId) return;
+            const listItem = document.createElement('li');
+            listItem.className = 'conversation-item';
+            listItem.dataset.userId = convData.userId;
+            // Avatar
+            const avatarSeed = convData.username || convData.userId || 'user';
+            const avatarUrl = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(avatarSeed)}`;
+            const avatarImg = document.createElement('img');
+            avatarImg.className = 'conversation-avatar';
+            avatarImg.src = avatarUrl;
+            avatarImg.alt = 'avatar';
+            // Name
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'conversation-name';
+            nameSpan.textContent = convData.username;
+            // Unread badge
+            const unreadCount = unreadSenders.get(convData.userId) || 0;
+            if (unreadCount > 0) {
+                const unreadBadge = document.createElement('span');
+                unreadBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+                unreadBadge.style.cssText = "background-color: red; color: white; border-radius: 50%; padding: 1px 7px; font-size: 0.9em; margin-left: 8px; font-weight: bold;";
+                nameSpan.appendChild(unreadBadge);
+            }
+            // Online status
+            const statusIndicator = document.createElement('span');
+            statusIndicator.className = `online-status-indicator ${convData.isOnline ? 'online' : ''}`;
+            // Click event
+            listItem.append(avatarImg, nameSpan, statusIndicator);
+            listItem.addEventListener('click', () => openChatWindow({ userId: convData.userId, username: convData.username }));
+            list.appendChild(listItem);
+        });
+    }
+    function handleChatBackButtonClick() { 
+        closeChatWindow(); 
+        showConversationsPanel(); 
+        setTimeout(showChatIconIfAllClosed, 0); // Ensure DOM updates before checking
+    }
 
     // --- MAP FUNCTIONS ---
     // ... (keep initializeMapAndMarkers, getIconForMode, addUserToMap, removeUserFromMap, updateUserLocationOnMap, updateUserModeOnMap, clearAllUserMarkers, updateMarkerPopup, setupSidebarListeners, clearMeetpoint, handleMeetptSelect, calculateDistance, deg2rad, calculateMeetPoint, getPlaceNameFromCoords as they were) ...
@@ -467,10 +495,130 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     window.clearMeetpoint = function() { if (meetpointMarker) { map.removeLayer(meetpointMarker); meetpointMarker = null; } const oldId = currentlyMeetingWithId; currentlyMeetingWithId = null; const myId = getMyUserId(); const myData = onlineUsersMap.get(myId); if(myData?.marker) updateMarkerPopup(myData.marker, myData); const oldTargetData = onlineUsersMap.get(oldId); if (oldTargetData?.marker) updateMarkerPopup(oldTargetData.marker, oldTargetData); }
-    window.handleMeetptSelect = async function(targetUserId) { const myUserId = getMyUserId(); const user = onlineUsersMap.get(myUserId); const target = onlineUsersMap.get(targetUserId); if (!localStorage.getItem('authToken')) return alert("Please log in."); if (!user || !target) return console.error("Meetpoint: User data missing."); if (!locationActive || user.latitude == null ) return alert("Your location not active."); if (target.latitude == null ) return alert(`${target.username}'s location unavailable.`); const prevId = currentlyMeetingWithId; clearMeetpoint(); let coords = calculateMeetPoint(user, target); if (!coords) return console.error("Meetpoint: Calc failed."); let distStr = userLocation.latitude ? `${calculateDistance(userLocation.latitude, userLocation.longitude, coords.latitude, coords.longitude).toFixed(2)} km` : null; meetpointMarker = L.marker([coords.latitude, coords.longitude], { icon: L.divIcon({ className: 'meetpoint-icon', html: '⏳' }) }).addTo(map).bindPopup(`Calculating...`).openPopup(); try { const name = await getPlaceNameFromCoords(coords.latitude, coords.longitude); currentlyMeetingWithId = targetUserId; const popup = `Meetpoint: ${name}`; if (meetpointMarker) { meetpointMarker.setIcon(L.divIcon({ className: 'meetpoint-icon', html: '📍' })); meetpointMarker.setPopupContent(popup); } if (user.marker) updateMarkerPopup(user.marker, user); if (target.marker) updateMarkerPopup(target.marker, target); const prevTarget = onlineUsersMap.get(prevId); if (prevId && prevId !== targetUserId && prevTarget?.marker) updateMarkerPopup(prevTarget.marker, prevTarget); console.log(`Meetpoint: ${name}. Dist: ${distStr || 'N/A'}`); } catch (err) { console.error("Meetpoint Error:", err); if (meetpointMarker) { meetpointMarker.setIcon(L.divIcon({ className: 'meetpoint-icon', html: '❓' })); meetpointMarker.setPopupContent(`Meetpoint: Coords (lookup failed)`); } currentlyMeetingWithId = null; if (user.marker) updateMarkerPopup(user.marker, user); if (target.marker) updateMarkerPopup(target.marker, target); } }
+    window.handleMeetptSelect = async function(targetUserId) {
+        const myUserId = getMyUserId();
+        const user = onlineUsersMap.get(myUserId);
+        const target = onlineUsersMap.get(targetUserId);
+
+        // Validate authentication
+        if (!localStorage.getItem('authToken')) {
+            alert("Please log in to use the meetpoint feature.");
+            return;
+        }
+
+        // Validate user data
+        if (!user || !target) {
+            console.error("Meetpoint: User data missing.");
+            alert("Could not find user data. Please try again.");
+            return;
+        }
+
+        // Check if either user is in ghost mode
+        if (ghostModeOn) {
+            alert("Cannot calculate meetpoint while in ghost mode. Please disable ghost mode first.");
+            return;
+        }
+
+        // Check if target is in ghost mode
+        if (target.ghostMode) {
+            alert(`${target.username} is in ghost mode and cannot be used for meetpoint calculation.`);
+            return;
+        }
+
+        // Validate locations
+        if (!locationActive || user.latitude == null) {
+            alert("Your location is not active. Please enable location sharing.");
+            return;
+        }
+
+        if (target.latitude == null) {
+            alert(`${target.username}'s location is not available.`);
+            return;
+        }
+
+        const prevId = currentlyMeetingWithId;
+        clearMeetpoint();
+
+        // Calculate meetpoint
+        let coords = calculateMeetPoint(user, target);
+        if (!coords) {
+            alert("Could not calculate meetpoint. Users may be too far apart.");
+            return;
+        }
+
+        // Calculate distance
+        let distStr = userLocation.latitude ? 
+            `${calculateDistance(userLocation.latitude, userLocation.longitude, coords.latitude, coords.longitude).toFixed(2)} km` : 
+            null;
+
+        // Create temporary meetpoint marker
+        meetpointMarker = L.marker([coords.latitude, coords.longitude], {
+            icon: L.divIcon({ className: 'meetpoint-icon', html: '⏳' })
+        }).addTo(map).bindPopup(`Calculating...`).openPopup();
+
+        try {
+            // Get place name
+            const name = await getPlaceNameFromCoords(coords.latitude, coords.longitude);
+            currentlyMeetingWithId = targetUserId;
+
+            // Update meetpoint marker
+            if (meetpointMarker) {
+                meetpointMarker.setIcon(L.divIcon({ className: 'meetpoint-icon', html: '📍' }));
+                meetpointMarker.setPopupContent(`Meetpoint: ${name}${distStr ? ` (${distStr} away)` : ''}`);
+            }
+
+            // Update user markers
+            if (user.marker) updateMarkerPopup(user.marker, user);
+            if (target.marker) updateMarkerPopup(target.marker, target);
+
+            // Update previous target if different
+            const prevTarget = onlineUsersMap.get(prevId);
+            if (prevId && prevId !== targetUserId && prevTarget?.marker) {
+                updateMarkerPopup(prevTarget.marker, prevTarget);
+            }
+
+            console.log(`Meetpoint: ${name}. Dist: ${distStr || 'N/A'}`);
+        } catch (err) {
+            console.error("Meetpoint Error:", err);
+            if (meetpointMarker) {
+                meetpointMarker.setIcon(L.divIcon({ className: 'meetpoint-icon', html: '❓' }));
+                meetpointMarker.setPopupContent(`Meetpoint: Coords (lookup failed)`);
+            }
+            currentlyMeetingWithId = null;
+            if (user.marker) updateMarkerPopup(user.marker, user);
+            if (target.marker) updateMarkerPopup(target.marker, target);
+        }
+    }
     window.calculateDistance = function(lat1, lon1, lat2, lon2) { const R = 6371; const dLat = deg2rad(lat2 - lat1); const dLon = deg2rad(lon2 - lon1); const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2); const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); return R * c; }
     window.deg2rad = function(deg) { return deg * (Math.PI / 180); }
-    window.calculateMeetPoint = function(d1, d2) { if (!d1 || !d2 || d1.latitude==null || d2.latitude==null) return null; return { latitude:(d1.latitude+d2.latitude)/2, longitude:(d1.longitude+d2.longitude)/2 }; }
+    window.calculateMeetPoint = function(d1, d2) {
+        // Validate inputs
+        if (!d1 || !d2 || d1.latitude == null || d2.latitude == null) {
+            console.error("Invalid user data for meetpoint calculation");
+            return null;
+        }
+
+        // Check for NaN values
+        if (isNaN(d1.latitude) || isNaN(d1.longitude) || isNaN(d2.latitude) || isNaN(d2.longitude)) {
+            console.error("Invalid coordinates (NaN)");
+            return null;
+        }
+
+        // Calculate distance between points
+        const distance = calculateDistance(d1.latitude, d1.longitude, d2.latitude, d2.longitude);
+        
+        // If users are too far apart (e.g., > 1000km), return null
+        if (distance > 1000) {
+            console.warn("Users are too far apart for meetpoint calculation");
+            return null;
+        }
+
+        // Calculate midpoint
+        return {
+            latitude: (d1.latitude + d2.latitude) / 2,
+            longitude: (d1.longitude + d2.longitude) / 2
+        };
+    }
     window.getPlaceNameFromCoords = async function(lat, lon) { const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&accept-language=en`; try { const res = await fetch(url); if (!res.ok) throw new Error(`Nominatim: ${res.status}`); const data = await res.json(); let name = data.display_name || 'Unknown'; if (data.address) { name = data.address.road||data.address.suburb||data.address.village||data.address.town||data.address.city||name; if ((name===data.address.road||name===data.address.suburb) && data.address.country) name += `, ${data.address.country}`; } return name; } catch (err) { console.error("Geocoding error:", err); return `Coords: ${lat.toFixed(3)}, ${lon.toFixed(3)}`; } }
 
 
@@ -687,16 +835,18 @@ function addReactionToMessage(messageId, reaction, userId) {
 }
 
 function updateMessageReactions(messageId) {
-    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
-    if (!messageElement) return;
-    
-    const reactionsContainer = messageElement.querySelector('.message-reactions');
-    if (!reactionsContainer) return;
-    
+    // Find the correct message bubble
+    const msgDiv = document.querySelector(`.message[data-message-id="${messageId}"]`);
+    if (!msgDiv) return;
+    let reactionsContainer = msgDiv.querySelector('.message-reactions');
+    if (!reactionsContainer) {
+        reactionsContainer = document.createElement('div');
+        reactionsContainer.className = 'message-reactions';
+        msgDiv.appendChild(reactionsContainer);
+    }
     reactionsContainer.innerHTML = '';
     const reactions = messageReactions.get(messageId);
     if (!reactions) return;
-    
     reactions.forEach((userIds, reaction) => {
         const reactionElement = document.createElement('span');
         reactionElement.className = 'reaction';
@@ -735,28 +885,50 @@ function toggleReaction(messageId, reaction) {
     updateMessageReactions(messageId);
 }
 
-function showReactionPicker(event, messageId) {
-    const picker = document.getElementById('reaction-picker');
-    picker.style.left = `${event.clientX}px`;
-    picker.style.top = `${event.clientY}px`;
-    picker.classList.remove('hidden');
-    
-    const closePicker = (e) => {
-        if (!picker.contains(e.target)) {
-            picker.classList.add('hidden');
-            document.removeEventListener('click', closePicker);
+function showMessageContextMenu(event, messageId) {
+    event.preventDefault();
+    document.querySelectorAll('.message-context-menu').forEach(m => m.remove());
+    const menu = document.createElement('div');
+    menu.className = 'message-context-menu show';
+    menu.style.left = `${event.clientX}px`;
+    menu.style.top = `${event.clientY}px`;
+    const pinItem = document.createElement('div');
+    pinItem.className = 'context-menu-item';
+    pinItem.textContent = pinnedMessages.has(messageId) ? 'Unpin Message' : 'Pin Message';
+    pinItem.onclick = (e) => {
+        e.stopPropagation();
+        pinMessage(messageId);
+        menu.remove();
+    };
+    const reactItem = document.createElement('div');
+    reactItem.className = 'context-menu-item';
+    reactItem.textContent = 'Add Reaction';
+    reactItem.onclick = (e) => {
+        e.stopPropagation();
+        showReactionPicker(event, messageId);
+        menu.remove();
+    };
+    const copyItem = document.createElement('div');
+    copyItem.className = 'context-menu-item';
+    copyItem.textContent = 'Copy Text';
+    copyItem.onclick = (e) => {
+        e.stopPropagation();
+        copyMessageText(messageId);
+        menu.remove();
+    };
+    menu.appendChild(pinItem);
+    menu.appendChild(reactItem);
+    menu.appendChild(copyItem);
+    document.body.appendChild(menu);
+    const closeMenu = (e) => {
+        if (!menu.contains(e.target)) {
+            menu.remove();
+            document.removeEventListener('mousedown', closeMenu);
         }
     };
-    
-    document.addEventListener('click', closePicker);
-    
-    picker.querySelectorAll('.reaction-option').forEach(button => {
-        button.onclick = () => {
-            toggleReaction(messageId, button.dataset.reaction);
-            picker.classList.add('hidden');
-        };
-    });
+    setTimeout(() => document.addEventListener('mousedown', closeMenu), 0);
 }
+window.showMessageContextMenu = showMessageContextMenu;
 
 function pinMessage(messageId) {
     if (pinnedMessages.has(messageId)) {
@@ -776,89 +948,104 @@ function pinMessage(messageId) {
     });
 }
 
-function showMessageContextMenu(event, messageId) {
-    event.preventDefault();
-    const menu = document.createElement('div');
-    menu.className = 'message-context-menu';
-    menu.innerHTML = `
-        <div class="context-menu-item" onclick="pinMessage('${messageId}')">📌 ${pinnedMessages.has(messageId) ? 'Unpin' : 'Pin'} Message</div>
-        <div class="context-menu-item" onclick="showReactionPicker(event, '${messageId}')">Add Reaction</div>
-        <div class="context-menu-item" onclick="copyMessageText('${messageId}')">Copy Text</div>
-    `;
-    
-    menu.style.left = `${event.clientX}px`;
-    menu.style.top = `${event.clientY}px`;
-    document.body.appendChild(menu);
-    
-    const closeMenu = (e) => {
-        if (!menu.contains(e.target)) {
-            menu.remove();
-            document.removeEventListener('click', closeMenu);
-        }
-    };
-    
-    document.addEventListener('click', closeMenu);
-}
-
 function copyMessageText(messageId) {
     const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
     if (messageElement) {
         const text = messageElement.querySelector('.message-text').textContent;
-        navigator.clipboard.writeText(text);
+        navigator.clipboard.writeText(text).then(() => {
+            addSystemMessageToChat('Message copied to clipboard');
+        }).catch(() => {
+            addSystemMessageToChat('Failed to copy message');
+        });
+    }
+}
+window.copyMessageText = copyMessageText;
+
+function updatePinnedMessagesList() {
+    if (!domElements || !domElements.pinnedMessagesList) return;
+    domElements.pinnedMessagesList.innerHTML = '';
+    pinnedMessages.forEach(messageId => {
+        const msgDiv = document.querySelector(`[data-message-id="${messageId}"]`);
+        if (msgDiv) {
+            const text = msgDiv.querySelector('.message-text')?.textContent || '';
+            const item = document.createElement('div');
+            item.className = 'pinned-message-item';
+            item.textContent = text;
+            item.onclick = () => {
+                msgDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                msgDiv.classList.add('highlight');
+                setTimeout(() => msgDiv.classList.remove('highlight'), 2000);
+            };
+            domElements.pinnedMessagesList.appendChild(item);
+        }
+    });
+}
+
+// Add these socket event handlers
+socket.on('message pinned', (data) => {
+    updatePinnedMessagesList();
+    if (currentChatTarget?.userId === data.senderId) {
+        addSystemMessageToChat(`${data.sender} pinned a message`);
+    }
+});
+
+socket.on('reaction added', (data) => {
+    updateMessageReactions(data.messageId);
+});
+
+// --- Floating Chat Icon Button Logic ---
+const globalChatToggle = document.getElementById('global-chat-toggle');
+const conversationsPanel = document.getElementById('conversations-panel');
+const closeConversationsBtn = document.getElementById('close-conversations-btn');
+if (globalChatToggle) {
+    globalChatToggle.addEventListener('click', () => {
+        const chatWindow = document.getElementById('chat-window');
+        if (chatWindow) chatWindow.style.display = 'none';
+        if (conversationsPanel) {
+            conversationsPanel.style.display = 'flex';
+            conversationsPanel.style.zIndex = 3000;
+        }
+        showChatIconIfAllClosed();
+    });
+}
+if (closeConversationsBtn && conversationsPanel) {
+    closeConversationsBtn.addEventListener('click', () => {
+        conversationsPanel.style.display = 'none';
+        showChatIconIfAllClosed();
+    });
+}
+const closeChatBtn = document.getElementById('close-chat-btn');
+if (closeChatBtn) {
+    closeChatBtn.addEventListener('click', () => {
+        const chatWindow = document.getElementById('chat-window');
+        if (chatWindow) chatWindow.style.display = 'none';
+        showChatIconIfAllClosed();
+    });
+}
+
+// Update unread badge logic if needed
+function updateUnreadBadge() {
+    const badge = document.getElementById('chat-unread-badge');
+    let total = 0;
+    unreadSenders.forEach(c => total += c);
+    if (badge) {
+        if (total > 0) {
+            badge.textContent = total > 9 ? '9+' : total;
+            badge.style.display = 'flex';
+        } else {
+            badge.style.display = 'none';
+        }
     }
 }
 
-// Update socket event handlers
-socket.on('message reaction updated', ({ messageId, reaction, userId, add }) => {
-    if (!messageReactions.has(messageId)) {
-        messageReactions.set(messageId, new Map());
-    }
-    
-    const messageReactionsMap = messageReactions.get(messageId);
-    if (!messageReactionsMap.has(reaction)) {
-        messageReactionsMap.set(reaction, new Set());
-    }
-    
-    if (add) {
-        messageReactionsMap.get(reaction).add(userId);
-    } else {
-        messageReactionsMap.get(reaction).delete(userId);
-        if (messageReactionsMap.get(reaction).size === 0) {
-            messageReactionsMap.delete(reaction);
+function showChatIconIfAllClosed() {
+    const chatWindow = document.getElementById('chat-window');
+    const globalChatToggle = document.getElementById('global-chat-toggle');
+    if (globalChatToggle) {
+        if (chatWindow && chatWindow.style.display === 'flex') {
+            globalChatToggle.style.display = 'none';
+        } else {
+            globalChatToggle.style.display = 'flex';
         }
     }
-    
-    updateMessageReactions(messageId);
-});
-
-socket.on('pinned message updated', ({ messageId, pin }) => {
-    if (pin) {
-        pinnedMessages.add(messageId);
-    } else {
-        pinnedMessages.delete(messageId);
-    }
-    
-    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
-    if (messageElement) {
-        messageElement.classList.toggle('pinned-message', pin);
-    }
-});
-
-// Listen for message read events from the server
-if (typeof socket !== 'undefined' && socket) {
-    socket.on('message read', ({ messageIds }) => {
-        messageIds.forEach(id => readMessages.add(id));
-        // Update checkmarks for displayed messages
-        messageIds.forEach(id => {
-            const msgDiv = document.querySelector(`.message[data-message-id="${id}"]`);
-            if (msgDiv) {
-                const statusSpan = msgDiv.querySelector('.message-status');
-                if (statusSpan) {
-                    statusSpan.textContent = '✓✓';
-                    statusSpan.classList.remove('delivered');
-                    statusSpan.classList.add('read');
-                }
-            }
-        });
-    });
 }

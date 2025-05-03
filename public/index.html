@@ -79,54 +79,67 @@
     </div>
 
     <!-- Chat Window -->
-     <div id="chat-window">
-         <div id="chat-header">
-             <button id="chat-back-btn" title="Back to List"><</button>
-             <span id="chat-with-username">Chat</span>
-             <div id="chat-actions">
-                 <button id="close-chat-btn" title="Close Chat">X</button>
-             </div>
-         </div>
-         <div id="chat-messages"></div>
-         <div id="chat-input-area">
-             <button id="emoji-btn" title="Choose emoji">😊</button>
-             <input type="text" id="chat-message-input" placeholder="Type message..." autocomplete="off">
-             <button id="send-chat-btn">Send</button>
-             <emoji-picker id="emoji-picker" class="light"></emoji-picker>
-         </div>
-         <div id="reaction-picker" class="hidden">
-             <button class="reaction-option" data-reaction="👍">👍</button>
-             <button class="reaction-option" data-reaction="❤️">❤️</button>
-             <button class="reaction-option" data-reaction="😂">😂</button>
-             <button class="reaction-option" data-reaction="😮">😮</button>
-             <button class="reaction-option" data-reaction="😢">😢</button>
-             <button class="reaction-option" data-reaction="🙏">🙏</button>
-         </div>
-     </div>
+    <div id="chat-window" class="modern-chatbox">
+        <div class="chatbox-header">
+            <div class="chatbox-header-left">
+                <button id="chat-back-btn" title="Back to List">&#8592;</button>
+                <img id="chatbox-avatar" class="avatar" src="" alt="avatar" style="display:none;">
+                <span id="chat-with-username">Chat</span>
+                <span id="chat-with-status" class="chat-status"></span>
+            </div>
+            <div class="chatbox-header-right">
+                <button id="close-chat-btn" title="Close Chat">&#10005;</button>
+            </div>
+        </div>
+        <div class="chatbox-tools">
+            <div id="pinned-messages-list" class="pinned-messages"></div>
+        </div>
+        <div id="chat-messages" class="chatbox-messages"></div>
+        <div id="chatbox-input-area">
+            <button id="emoji-btn" title="Choose emoji">😊</button>
+            <input type="text" id="chat-message-input" placeholder="Type a message..." autocomplete="off">
+            <button id="send-chat-btn">Send</button>
+        </div>
+        <emoji-picker id="emoji-picker" class="light"></emoji-picker>
+        <div id="reaction-picker" class="hidden">
+            <button class="reaction-option" data-reaction="👍">👍</button>
+            <button class="reaction-option" data-reaction="❤️">❤️</button>
+            <button class="reaction-option" data-reaction="😂">😂</button>
+            <button class="reaction-option" data-reaction="😮">😮</button>
+            <button class="reaction-option" data-reaction="😢">😢</button>
+            <button class="reaction-option" data-reaction="🙏">🙏</button>
+        </div>
+    </div>
 
-     <!-- Group Chat Participants Modal -->
-     <div id="participants-modal" class="modal hidden">
-         <div class="modal-content">
-             <h3>Chat Participants</h3>
-             <div id="participants-list"></div>
-             <div class="modal-actions">
-                 <button id="add-participant-modal-btn">Add Participant</button>
-                 <button id="close-participants-modal">Close</button>
-             </div>
-         </div>
-     </div>
+    <!-- Modern Floating Chat Icon Button -->
+    <button id="global-chat-toggle" title="Open Chat" style="display: flex; align-items: center; justify-content: center;">
+        <span style="font-size: 1.7em;">💬</span>
+        <span id="chat-unread-badge"></span>
+    </button>
 
-     <!-- File Upload Modal -->
-     <div id="file-upload-modal" class="modal hidden">
-         <div class="modal-content">
-             <h3>Share File</h3>
-             <input type="file" id="file-input" multiple>
-             <div class="modal-actions">
-                 <button id="upload-file-btn">Upload</button>
-                 <button id="close-file-modal">Cancel</button>
-             </div>
-         </div>
-     </div>
+    <!-- Group Chat Participants Modal -->
+    <div id="participants-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Chat Participants</h3>
+            <div id="participants-list"></div>
+            <div class="modal-actions">
+                <button id="add-participant-modal-btn">Add Participant</button>
+                <button id="close-participants-modal">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Upload Modal -->
+    <div id="file-upload-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Share File</h3>
+            <input type="file" id="file-input" multiple>
+            <div class="modal-actions">
+                <button id="upload-file-btn">Upload</button>
+                <button id="close-file-modal">Cancel</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Conversations Panel -->
     <div id="conversations-panel">
@@ -134,12 +147,36 @@
         <ul id="conversations-list"> </ul>
     </div>
 
-    <!-- Global Chat Toggle Button -->
-    <button id="global-chat-toggle" title="Open Chat List">
-        <span>💬</span>
-        <span id="chat-unread-badge"></span> <!-- Unread message badge -->
-    </button>
-
+    <!-- New chat container -->
+    <div id="chat-container" class="hidden">
+        <div class="chat-header">
+            <div class="chat-title">
+                <span id="chat-target-name">Global Chat</span>
+                <span id="chat-target-status" class="status-indicator"></span>
+            </div>
+            <div class="chat-actions">
+                <button id="toggle-theme" class="icon-button" title="Toggle Theme">🌓</button>
+                <button id="close-chat" class="icon-button">✕</button>
+            </div>
+        </div>
+        
+        <div class="chat-tools">
+            <div id="pinned-messages-list" class="pinned-messages"></div>
+        </div>
+        
+        <div id="chat-messages"></div>
+        
+        <div class="chat-input-container">
+            <div class="message-actions">
+                <button id="toggle-ghost-mode" class="icon-button" title="Toggle Ghost Mode">👻</button>
+                <button id="toggle-satellite" class="icon-button" title="Toggle Satellite View">🛰️</button>
+                <button id="toggle-terrain" class="icon-button" title="Toggle Terrain View">🗻</button>
+                <button id="toggle-meetpt" class="icon-button" title="Calculate Meet Point">📍</button>
+            </div>
+            <textarea id="message-input" placeholder="Type a message..."></textarea>
+            <button id="send-message">Send</button>
+        </div>
+    </div>
 
     <!-- Libraries (Socket.IO needs to load BEFORE script.js) -->
     <script src="/socket.io/socket.io.js"></script>
