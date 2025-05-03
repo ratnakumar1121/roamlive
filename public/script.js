@@ -649,7 +649,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (domElements.logoutButton) domElements.logoutButton.addEventListener('click', () => { fetch('/api/auth/logout', { method: 'POST' }).catch(console.error); localStorage.clear(); updateLoginState(); }); else console.error("Logout Button Not Found!");
     if (domElements.globalChatToggle) domElements.globalChatToggle.addEventListener('click', toggleConversationsPanel); else console.error("Global Chat Toggle Not Found!");
     if (domElements.closeConversationsBtn) domElements.closeConversationsBtn.addEventListener('click', hideConversationsPanel); else console.error("Close Conversations Button Not Found!");
-    if (domElements.closeChatBtn) domElements.closeChatBtn.addEventListener('click', closeChatWindow); else console.error("Close Chat Button Not Found!");
+    if (domElements.closeChatBtn) domElements.closeChatBtn.addEventListener('click', () => {
+        closeChatWindow();
+        showChatIconIfAllClosed(); // Ensure chat icon reappears
+    }); else console.error("Close Chat Button Not Found!");
     if (domElements.chatBackBtn) domElements.chatBackBtn.addEventListener('click', handleChatBackButtonClick); else console.error("Chat Back Button Not Found!");
     if (domElements.sendChatBtn) domElements.sendChatBtn.addEventListener('click', sendChatMessage); else console.error("Send Chat Button Not Found!");
     if (domElements.chatMessageInput) domElements.chatMessageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }); else console.error("Chat Message Input Not Found!");
