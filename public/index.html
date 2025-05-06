@@ -16,6 +16,13 @@
     <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script> <!-- For Emoji Picker -->
 </head>
 <body>
+    <!-- AI Search Bar -->
+    <div id="ai-search-bar" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:2000;width:350px;max-width:90vw;">
+        <input type="text" id="ai-search-input" placeholder="Search any place, city, landmark..." style="width:80%;padding:8px 12px;border-radius:6px 0 0 6px;border:1px solid #bbb;font-size:1em;">
+        <button id="ai-search-btn" style="padding:8px 16px;border-radius:0 6px 6px 0;border:1px solid #bbb;background:#007bff;color:#fff;font-weight:bold;cursor:pointer;">Search</button>
+    </div>
+    <!-- AI Search Result Popup -->
+    <div id="ai-search-result" style="display:none;position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:2100;background:#fff;color:#222;padding:16px;border-radius:10px;box-shadow:0 4px 24px #0003;max-width:400px;width:90vw;"></div>
     <!-- Map container -->
     <div id="map"></div>
 

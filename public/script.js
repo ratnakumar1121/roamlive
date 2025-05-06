@@ -21,6 +21,7 @@ let pinnedMessages = new Set();
 let ghostMarker = null;
 let readMessages = new Set();
 let domElements; // <-- Make domElements global
+let liveMessageBuffer = new Map(); // userId -> array of messages
 
 // === UTILITY ===
 const getMyUserId = () => parseInt(localStorage.getItem('loggedInUserId') || '-1');
@@ -72,7 +73,10 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadFileBtn: document.getElementById('upload-file-btn'),
         themeToggleBtn: document.getElementById('theme-toggle-btn'),
         pinnedMessagesList: document.getElementById('pinned-messages-list'),
-        messageSearchInput: document.getElementById('message-search')
+        messageSearchInput: document.getElementById('message-search'),
+        aiSearchInput: document.getElementById('ai-search-input'),
+        aiSearchBtn: document.getElementById('ai-search-btn'),
+        aiSearchResult: document.getElementById('ai-search-result')
     };
 
     // --- DEBUG: Log found elements ---
@@ -155,40 +159,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- WEBSOCKET / CHAT FUNCTIONS ---
     // ... (keep connectWebSocket, disconnectWebSocket, openChatWindow, closeChatWindow, displayChatMessage, addSystemMessageToChat, sendChatMessage, updateUnreadBadge, showConversationsPanel, hideConversationsPanel, toggleConversationsPanel, renderConversationsList, handleChatBackButtonClick as they were) ...
-    function connectWebSocket(token) { if (socket?.connected) return; console.log("[WS] Attempting connection..."); unreadSenders.clear(); updateUnreadBadge(); conversationsMap.clear(); socket = io({ auth: { token } }); socket.on('connect', () => { console.log(`[WS] Connected: ${socket.id}`); const myUserId = getMyUserId(); const myUsername = localStorage.getItem('loggedInUser'); const currentMode = domElements.modeSelector?.value || 'person'; if (myUserId > 0 && myUsername) { onlineUsersMap.set(myUserId, { userId: myUserId, username: myUsername, mode: currentMode, latitude: userLocation.latitude, longitude: userLocation.longitude, marker: null, isOnline: true }); addUserToMap(onlineUsersMap.get(myUserId)); if (locationActive && userLocation.latitude != null) socket.emit('update location', { latitude: userLocation.latitude, longitude: userLocation.longitude }); socket.emit('update mode', { mode: currentMode }); socket.emit('request conversations'); } }); socket.on('disconnect', (reason) => { console.log(`[WS] Disconnected: ${reason}`); clearAllUserMarkers(); onlineUsersMap.clear(); conversationsMap.clear(); unreadSenders.clear(); updateUnreadBadge(); renderConversationsList(); if (reason === 'io server disconnect') { alert("Auth error. Disconnected."); domElements.logoutButton?.click(); } else { socket = null; updateLoginState(); } }); socket.on('connect_error', (error) => { console.error(`[WS] Connect Error: ${error.message}`); if (error.message.includes("Authentication")) { alert("WebSocket Auth Failed."); domElements.logoutButton?.click(); } else { console.error(`Cannot connect to server: ${error.message}`); } }); socket.on('conversation list response', (partners) => { console.log('[WS] Rcvd conversation list:', partners); const newConversationsMap = new Map(); partners.forEach(p => { newConversationsMap.set(p.userId, { ...p, isOnline: onlineUsersMap.has(p.userId) && onlineUsersMap.get(p.userId).isOnline }); }); conversationsMap.forEach((clientData, userId) => { if (!newConversationsMap.has(userId)) { newConversationsMap.set(userId, clientData); } }); conversationsMap = newConversationsMap; renderConversationsList(); }); socket.on('user connected', (userData) => { console.log('[WS] Rcvd user connected:', userData.username); onlineUsersMap.set(userData.userId, { ...userData, isOnline: true, marker: onlineUsersMap.get(userData.userId)?.marker }); addUserToMap(onlineUsersMap.get(userData.userId)); if (conversationsMap.has(userData.userId)) { conversationsMap.get(userData.userId).isOnline = true; renderConversationsList(); } }); socket.on('user disconnected', ({ userId }) => { console.log('[WS] Rcvd user disconnected:', userId); if (onlineUsersMap.has(userId)) onlineUsersMap.get(userId).isOnline = false; removeUserFromMap(userId); if (conversationsMap.has(userId)) { conversationsMap.get(userId).isOnline = false; renderConversationsList(); } if (currentChatTarget?.userId === userId) { addSystemMessageToChat(`${currentChatTarget.username} went offline.`); if(domElements.chatHeaderUsername) domElements.chatHeaderUsername.textContent = `Chat with ${currentChatTarget.username} (Offline)`; } }); socket.on('location updated', ({ userId, latitude, longitude }) => { updateUserLocationOnMap(userId, latitude, longitude); }); socket.on('mode updated', ({ userId, mode }) => { updateUserModeOnMap(userId, mode); }); socket.on('private message', ({ sender, message }) => { console.log('[WS] Rcvd private message from', sender.username); const isChatOpen = domElements.chatWindow?.style.display === 'flex' && currentChatTarget?.userId === sender.userId; if (isChatOpen) { displayChatMessage(sender, message, false); } else if (sender.userId !== getMyUserId()) { const count = unreadSenders.get(sender.userId) || 0; unreadSenders.set(sender.userId, count + 1); updateUnreadBadge(); if (!conversationsMap.has(sender.userId)) conversationsMap.set(sender.userId, { userId: sender.userId, username: sender.username, isOnline: onlineUsersMap.has(sender.userId) && onlineUsersMap.get(sender.userId).isOnline }); renderConversationsList(); } }); socket.on('recipient offline', ({ recipientUserId }) => { if (currentChatTarget?.userId === recipientUserId) addSystemMessageToChat(`${currentChatTarget.username} is offline.`); }); socket.on('chat history response', ({ otherUserId, messages }) => { console.log(`[WS] Rcvd history for ${otherUserId}`); if (currentChatTarget?.userId === otherUserId && domElements.chatMessagesDiv) { const loading = domElements.chatMessagesDiv.querySelector('.system-message'); loading?.remove(); if (messages?.length > 0) messages.forEach(msg => displayChatMessage(msg.sender, msg.message, msg.sender.userId === getMyUserId())); else addSystemMessageToChat("No message history."); domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight; } }); socket.on('history error', ({ otherUserId, error }) => { if (currentChatTarget?.userId === otherUserId) addSystemMessageToChat(`Error loading history: ${error}`); }); socket.on('conversation error', ({error}) => { console.error("Conversation list error:", error); alert("Could not load conversations."); }); }
+    function connectWebSocket(token) { if (socket?.connected) return; console.log("[WS] Attempting connection..."); unreadSenders.clear(); updateUnreadBadge(); conversationsMap.clear(); socket = io({ auth: { token } }); socket.on('connect', () => { console.log(`[WS] Connected: ${socket.id}`); const myUserId = getMyUserId(); const myUsername = localStorage.getItem('loggedInUser'); const currentMode = domElements.modeSelector?.value || 'person'; if (myUserId > 0 && myUsername) { onlineUsersMap.set(myUserId, { userId: myUserId, username: myUsername, mode: currentMode, latitude: userLocation.latitude, longitude: userLocation.longitude, marker: null, isOnline: true }); addUserToMap(onlineUsersMap.get(myUserId)); if (locationActive && userLocation.latitude != null) socket.emit('update location', { latitude: userLocation.latitude, longitude: userLocation.longitude }); socket.emit('update mode', { mode: currentMode }); socket.emit('request conversations'); } }); socket.on('disconnect', (reason) => { console.log(`[WS] Disconnected: ${reason}`); clearAllUserMarkers(); onlineUsersMap.clear(); conversationsMap.clear(); unreadSenders.clear(); updateUnreadBadge(); renderConversationsList(); if (reason === 'io server disconnect') { alert("Auth error. Disconnected."); domElements.logoutButton?.click(); } else { socket = null; updateLoginState(); } }); socket.on('connect_error', (error) => { console.error(`[WS] Connect Error: ${error.message}`); if (error.message.includes("Authentication")) { alert("WebSocket Auth Failed."); domElements.logoutButton?.click(); } else { console.error(`Cannot connect to server: ${error.message}`); } }); socket.on('conversation list response', (partners) => { console.log('[WS] Rcvd conversation list:', partners); const newConversationsMap = new Map(); partners.forEach(p => { newConversationsMap.set(p.userId, { ...p, isOnline: onlineUsersMap.has(p.userId) && onlineUsersMap.get(p.userId).isOnline }); }); conversationsMap.forEach((clientData, userId) => { if (!newConversationsMap.has(userId)) { newConversationsMap.set(userId, clientData); } }); conversationsMap = newConversationsMap; renderConversationsList(); }); socket.on('user connected', (userData) => { console.log('[WS] Rcvd user connected:', userData.username); onlineUsersMap.set(userData.userId, { ...userData, isOnline: true, marker: onlineUsersMap.get(userData.userId)?.marker }); addUserToMap(onlineUsersMap.get(userData.userId)); if (conversationsMap.has(userData.userId)) { conversationsMap.get(userData.userId).isOnline = true; renderConversationsList(); } }); socket.on('user disconnected', ({ userId }) => { console.log('[WS] Rcvd user disconnected:', userId); if (onlineUsersMap.has(userId)) onlineUsersMap.get(userId).isOnline = false; removeUserFromMap(userId); if (conversationsMap.has(userId)) { conversationsMap.get(userId).isOnline = false; renderConversationsList(); } if (currentChatTarget?.userId === userId) { addSystemMessageToChat(`${currentChatTarget.username} went offline.`); if(domElements.chatHeaderUsername) domElements.chatHeaderUsername.textContent = `Chat with ${currentChatTarget.username} (Offline)`; } }); socket.on('location updated', ({ userId, latitude, longitude }) => {
+        console.log(`[CLIENT] Location updated for user ${userId}: ${latitude}, ${longitude}`);
+        updateUserLocationOnMap(userId, latitude, longitude);
+    }); socket.on('mode updated', ({ userId, mode }) => { updateUserModeOnMap(userId, mode); }); socket.on('private message', ({ sender, message }) => {
+        console.log('[WS] Rcvd private message from', sender.username);
+        const isChatOpen = domElements.chatWindow?.style.display === 'flex' && currentChatTarget?.userId === sender.userId;
+        if (isChatOpen) {
+            displayChatMessage(sender, message, false);
+        } else if (sender.userId !== getMyUserId()) {
+            // Buffer the message
+            if (!liveMessageBuffer.has(sender.userId)) liveMessageBuffer.set(sender.userId, []);
+            liveMessageBuffer.get(sender.userId).push({ sender, message });
+            const count = unreadSenders.get(sender.userId) || 0;
+            unreadSenders.set(sender.userId, count + 1);
+            updateUnreadBadge();
+            if (!conversationsMap.has(sender.userId)) conversationsMap.set(sender.userId, { userId: sender.userId, username: sender.username, isOnline: onlineUsersMap.has(sender.userId) && onlineUsersMap.get(sender.userId).isOnline });
+            renderConversationsList();
+        }
+    }); socket.on('recipient offline', ({ recipientUserId }) => { if (currentChatTarget?.userId === recipientUserId) addSystemMessageToChat(`${currentChatTarget.username} is offline.`); }); socket.on('chat history response', ({ otherUserId, messages }) => { console.log(`[WS] Rcvd history for ${otherUserId}`); if (currentChatTarget?.userId === otherUserId && domElements.chatMessagesDiv) { const loading = domElements.chatMessagesDiv.querySelector('.system-message'); loading?.remove(); if (messages?.length > 0) messages.forEach(msg => displayChatMessage(msg.sender, msg.message, msg.sender.userId === getMyUserId())); else addSystemMessageToChat("No message history."); domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight; } }); socket.on('history error', ({ otherUserId, error }) => { if (currentChatTarget?.userId === otherUserId) addSystemMessageToChat(`Error loading history: ${error}`); }); socket.on('conversation error', ({error}) => { console.error("Conversation list error:", error); alert("Could not load conversations."); }); socket.on('bulk location update', (locations) => {
+        console.log('Bulk location update:', locations);
+        locations.forEach(({ userId, latitude, longitude }) => {
+            updateUserLocationOnMap(userId, latitude, longitude);
+        });
+    }); }
     function disconnectWebSocket() { if (socket) { console.log("[WS] Disconnecting..."); socket.disconnect(); socket = null; } }
     function openChatWindow(targetUser, isGroup = false) {
         if (!domElements.chatWindow || !socket) return;
         console.log("Opening chat with:", targetUser);
-        
         if (unreadSenders.has(targetUser.userId)) {
             unreadSenders.delete(targetUser.userId);
             updateUnreadBadge();
             renderConversationsList();
         }
-        
         hideConversationsPanel();
         currentChatTarget = targetUser;
         currentChatType = isGroup ? 'group' : 'private';
         currentGroupId = isGroup ? targetUser.groupId : null;
-        
         const isOnline = onlineUsersMap.has(targetUser.userId) && onlineUsersMap.get(targetUser.userId).isOnline;
         domElements.chatHeaderUsername.textContent = isGroup ? `Group: ${targetUser.groupName}` : `Chat with ${targetUser.username} (${isOnline ? 'Online' : 'Offline'})`;
-        
         domElements.chatMessagesDiv.innerHTML = '';
         addSystemMessageToChat("Loading history...");
-        
         if (isGroup) {
             socket.emit('request group chat history', { groupId: targetUser.groupId });
         } else {
             socket.emit('request chat history', { otherUserId: targetUser.userId });
         }
-        
         domElements.chatWindow.style.display = 'flex';
         domElements.chatMessageInput?.focus();
-        // Always scroll to bottom when opening chat
         domElements.chatMessagesDiv.scrollTop = domElements.chatMessagesDiv.scrollHeight;
-        // After a short delay, mark all messages as read
         setTimeout(() => {
             const unreadMsgIds = Array.from(domElements.chatMessagesDiv.querySelectorAll('.message[data-message-id]'))
                 .filter(div => {
@@ -203,6 +222,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 500);
         if (domElements.conversationsPanel) domElements.conversationsPanel.style.display = 'none';
         showChatIconIfAllClosed();
+        // After loading history, append buffered live messages
+        setTimeout(() => {
+            if (liveMessageBuffer.has(targetUser.userId)) {
+                const buffered = liveMessageBuffer.get(targetUser.userId);
+                buffered.forEach(({ sender, message }) => displayChatMessage(sender, message, false));
+                liveMessageBuffer.delete(targetUser.userId);
+            }
+        }, 600);
     }
     function closeChatWindow() { if (domElements.chatWindow) domElements.chatWindow.style.display = 'none'; currentChatTarget = null; domElements.emojiPicker?.classList.remove('show'); }
     function displayChatMessage(sender, message, isSentByMe, messageId = null) {
@@ -363,8 +390,51 @@ document.addEventListener('DOMContentLoaded', () => {
         setupSidebarListeners(); 
     }
     function getIconForMode(mode) { switch (mode) { case 'person': return L.divIcon({ className: 'traveler-icon', html: '👤' }); case 'motorcycle': return L.divIcon({ className: 'traveler-icon', html: '🛵' }); case 'car': return L.divIcon({ className: 'traveler-icon', html: '🚗' }); default: return L.divIcon({ className: 'traveler-icon', html: '❓' }); } }
-    function addUserToMap(userData) { if (!map) return; const myUserId = getMyUserId(); const isSelf = userData.userId === myUserId; let existingData = onlineUsersMap.get(userData.userId); if (!existingData) { onlineUsersMap.set(userData.userId, { ...userData, marker: null, isOnline: true }); existingData = onlineUsersMap.get(userData.userId); } else { Object.assign(existingData, userData, {isOnline: true}); } const shouldShowMarker = !(isSelf && ghostModeOn); const hasLocation = existingData.latitude != null && existingData.longitude != null; if (shouldShowMarker && hasLocation) { const latLng = L.latLng(existingData.latitude, existingData.longitude); const icon = getIconForMode(existingData.mode); if (existingData.marker) { existingData.marker.setLatLng(latLng).setIcon(icon); updateMarkerPopup(existingData.marker, existingData); } else { existingData.marker = L.marker(latLng, { icon: icon }).addTo(map); updateMarkerPopup(existingData.marker, existingData); } } else if (existingData.marker) { map.removeLayer(existingData.marker); existingData.marker = null; } }
-    function removeUserFromMap(userId) { if (onlineUsersMap.has(userId)) { const data = onlineUsersMap.get(userId); if (data.marker) map.removeLayer(data.marker); if(data) data.marker = null; data.isOnline = false; console.log(`Removed marker for ${userId}.`); if (userId === currentlyMeetingWithId) clearMeetpoint(); } }
+    function addUserToMap(userData) {
+        if (!map) return;
+        const myUserId = getMyUserId();
+        const isSelf = userData.userId === myUserId;
+        let existingData = onlineUsersMap.get(userData.userId);
+        if (!existingData) {
+            onlineUsersMap.set(userData.userId, { ...userData, marker: null, isOnline: true });
+            existingData = onlineUsersMap.get(userData.userId);
+        } else {
+            Object.assign(existingData, userData, {isOnline: true});
+        }
+        const shouldShowMarker = !(isSelf && ghostModeOn);
+        const hasLocation = existingData.latitude != null && existingData.longitude != null;
+        console.log(`[MARKER] addUserToMap called for userId=${userData.userId}, isSelf=${isSelf}, shouldShowMarker=${shouldShowMarker}, hasLocation=${hasLocation}`);
+        if (shouldShowMarker && hasLocation) {
+            const latLng = L.latLng(existingData.latitude, existingData.longitude);
+            const icon = getIconForMode(existingData.mode);
+            if (existingData.marker) {
+                existingData.marker.setLatLng(latLng).setIcon(icon);
+                updateMarkerPopup(existingData.marker, existingData);
+                console.log(`[MARKER] Updated marker for userId=${userData.userId}`);
+            } else {
+                existingData.marker = L.marker(latLng, { icon: icon }).addTo(map);
+                updateMarkerPopup(existingData.marker, existingData);
+                console.log(`[MARKER] Created marker for userId=${userData.userId}`);
+            }
+        } else if (existingData.marker) {
+            map.removeLayer(existingData.marker);
+            existingData.marker = null;
+            console.log(`[MARKER] Removed marker for userId=${userData.userId}`);
+        }
+    }
+    function removeUserFromMap(userId) {
+        if (onlineUsersMap.has(userId)) {
+            const data = onlineUsersMap.get(userId);
+            if (data.marker) {
+                map.removeLayer(data.marker);
+                data.marker = null;
+                console.log(`[MARKER] Removed marker for userId=${userId} (removeUserFromMap)`);
+            }
+            data.isOnline = false;
+            console.log(`Removed marker for ${userId}.`);
+            if (userId === currentlyMeetingWithId) clearMeetpoint();
+        }
+    }
     function updateUserLocationOnMap(userId, latitude, longitude) { if (onlineUsersMap.has(userId)) { const data = onlineUsersMap.get(userId); data.latitude = latitude; data.longitude = longitude; addUserToMap(data); } }
     function updateUserModeOnMap(userId, mode) { if (onlineUsersMap.has(userId)) { const data = onlineUsersMap.get(userId); data.mode = mode; addUserToMap(data); } }
     function clearAllUserMarkers() { if(map) onlineUsersMap.forEach(d => { if (d.marker) map.removeLayer(d.marker); }); onlineUsersMap.clear(); console.log("Cleared markers & user map state."); }
@@ -818,6 +888,83 @@ document.addEventListener('DOMContentLoaded', () => {
                 .catch(err => console.log('Service Worker registration failed:', err));
         });
     }
+
+    // === AI SEARCH BAR LOGIC ===
+    const aiSearchInput = document.getElementById('ai-search-input');
+    const aiSearchBtn = document.getElementById('ai-search-btn');
+    const aiSearchResult = document.getElementById('ai-search-result');
+    let aiSearchMarker = null;
+
+    async function aiSearch(query) {
+        if (!query) return;
+        aiSearchResult.style.display = 'none';
+        aiSearchResult.innerHTML = '';
+        // 1. Geocode with Nominatim
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
+        let geo;
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            if (!data.length) {
+                aiSearchResult.style.display = 'block';
+                aiSearchResult.innerHTML = `<b>No results found for "${query}"</b>`;
+                return;
+            }
+            geo = data[0];
+        } catch (e) {
+            aiSearchResult.style.display = 'block';
+            aiSearchResult.innerHTML = `<b>Error searching location.</b>`;
+            return;
+        }
+        // 2. Place marker and zoom
+        if (aiSearchMarker) map.removeLayer(aiSearchMarker);
+        aiSearchMarker = L.marker([geo.lat, geo.lon], { icon: L.divIcon({ className: 'traveler-icon', html: '📍' }) }).addTo(map);
+        // Add click event to toggle big info box
+        aiSearchMarker.on('click', () => {
+            if (aiSearchResult.style.display === 'block') {
+                aiSearchResult.style.display = 'none';
+            } else {
+                aiSearchResult.style.display = 'block';
+            }
+        });
+        map.setView([geo.lat, geo.lon], 15);
+        // 3. Wikipedia summary and image
+        let wikiHtml = '';
+        try {
+            // Try to get Wikipedia page title from Nominatim
+            let wikiTitle = geo.display_name.split(',')[0];
+            // Search Wikipedia for the title
+            const wikiSearch = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiTitle)}&utf8=&format=json&origin=*`);
+            const wikiData = await wikiSearch.json();
+            if (wikiData.query && wikiData.query.search && wikiData.query.search.length > 0) {
+                const page = wikiData.query.search[0];
+                const pageId = page.pageid;
+                // Get summary
+                const summaryRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(page.title)}`);
+                const summaryData = await summaryRes.json();
+                let imgHtml = '';
+                if (summaryData.thumbnail && summaryData.thumbnail.source) {
+                    imgHtml = `<img src="${summaryData.thumbnail.source}" alt="${page.title}" style="max-width:100%;border-radius:8px;margin-bottom:8px;">`;
+                }
+                let extract = summaryData.extract ? summaryData.extract.split('. ').slice(0,2).join('. ') + '.' : '';
+                wikiHtml = `${imgHtml}<b>${page.title}</b><br><span style='font-size:0.95em;'>${extract}</span><br><a href='https://en.wikipedia.org/?curid=${pageId}' target='_blank'>Wikipedia</a>`;
+            } else {
+                wikiHtml = `<b>${geo.display_name}</b><br><i>No Wikipedia info found.</i>`;
+            }
+        } catch (e) {
+            wikiHtml = `<b>${geo.display_name}</b><br><i>Could not fetch Wikipedia info.</i>`;
+        }
+        // 4. Show popup
+        aiSearchResult.style.display = 'block';
+        aiSearchResult.innerHTML = wikiHtml;
+    }
+
+    aiSearchBtn.addEventListener('click', () => {
+        aiSearch(aiSearchInput.value.trim());
+    });
+    aiSearchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') aiSearch(aiSearchInput.value.trim());
+    });
 }); // End DOMContentLoaded listener
 
 console.log("script.js: Loaded.");

@@ -66,10 +66,74 @@ function isUserOnline(userId) { return onlineUsers.has(Number(userId)); }
 io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id}, User: ${socket.user.username}`);
     addUser(socket, socket.user);
-    socket.on('update location', ({ latitude, longitude }) => { const userData = onlineUsers.get(socket.user.userId); if (userData) { userData.latitude = latitude; userData.longitude = longitude; console.log(`User ${socket.user.username} updated location: ${latitude}, ${longitude}`); socket.broadcast.emit('location updated', { userId: socket.user.userId, latitude: latitude, longitude: longitude }); } });
+
+    // Gather all online users' locations
+    const locations = [];
+    for (let [userId, data] of onlineUsers.entries()) {
+        if (data.latitude != null && data.longitude != null) {
+            locations.push({ userId, latitude: data.latitude, longitude: data.longitude });
+        }
+    }
+    if (locations.length > 0) {
+        // Send to the new user
+        socket.emit('bulk location update', locations);
+        // Also broadcast to all users (including the new user) to ensure everyone is in sync
+        io.emit('bulk location update', locations);
+        console.log(`[SERVER] Broadcasted all online users' locations to everyone.`);
+    }
+    // Also send the new user's location to all other users (if available)
+    const newUserData = onlineUsers.get(socket.user.userId);
+    if (newUserData && newUserData.latitude != null && newUserData.longitude != null) {
+        socket.broadcast.emit('location updated', {
+            userId: socket.user.userId,
+            latitude: newUserData.latitude,
+            longitude: newUserData.longitude
+        });
+        console.log(`[SERVER] Broadcasted new user's location to all others: userId=${socket.user.userId}`);
+    }
+
+    socket.on('update location', ({ latitude, longitude }) => { 
+        const userData = onlineUsers.get(socket.user.userId); 
+        if (userData) { 
+            userData.latitude = latitude; 
+            userData.longitude = longitude; 
+            console.log(`[SERVER] User ${socket.user.username} (ID: ${socket.user.userId}) updated location: ${latitude}, ${longitude}`); 
+            io.emit('location updated', { userId: socket.user.userId, latitude: latitude, longitude: longitude }); 
+            console.log(`[SERVER] Emitted location updated for user ${socket.user.userId} to all clients.`);
+        } else {
+            console.log(`[SERVER] update location: No userData for userId ${socket.user.userId}`);
+        }
+    });
     socket.on('update mode', ({ mode }) => { const userData = onlineUsers.get(socket.user.userId); if (userData) { userData.mode = mode; console.log(`User ${socket.user.username} updated mode: ${mode}`); socket.broadcast.emit('mode updated', { userId: socket.user.userId, mode: mode }); } });
     socket.on('private message', async ({ recipientUserId, message }) => { const sender = socket.user; console.log(`Msg from ${sender.username} (ID: ${sender.userId}) to user ID ${recipientUserId}: ${message}`); let savedMessage; let client; try { client = await pool.connect(); const insertQuery = `INSERT INTO chat_messages (sender_id, recipient_id, message_content) VALUES ($1, $2, $3) RETURNING id, sender_id, recipient_id, message_content, created_at`; const result = await client.query(insertQuery, [sender.userId, recipientUserId, message]); savedMessage = result.rows[0]; console.log(`Message saved to DB (ID: ${savedMessage.id})`); } catch (error) { console.error("Error saving chat message to DB:", error); socket.emit('message error', { error: "Failed to save message." }); if (client) client.release(); return; } finally { if (client) client.release(); } const recipientSocketId = getUserSocketId(recipientUserId); if (recipientSocketId) { io.to(recipientSocketId).emit('private message', { sender: { userId: sender.userId, username: sender.username }, message: savedMessage.message_content, timestamp: savedMessage.created_at }); console.log(`Message forwarded to socket ${recipientSocketId}`); } else { console.log(`Recipient user ID ${recipientUserId} is not online.`); socket.emit('recipient offline', { recipientUserId }); } });
-    socket.on('request chat history', async ({ otherUserId }) => { const currentUserId = socket.user.userId; console.log(`User ${currentUserId} requested chat history with user ${otherUserId}`); let client; try { client = await pool.connect(); const historyQuery = `SELECT m.id, m.sender_id, su.username as sender_username, m.recipient_id, ru.username as recipient_username, m.message_content, m.created_at FROM chat_messages m JOIN users su ON m.sender_id = su.id JOIN users ru ON m.recipient_id = ru.id WHERE (m.sender_id = $1 AND m.recipient_id = $2) OR (m.sender_id = $2 AND m.recipient_id = $1) ORDER BY m.created_at ASC LIMIT 50`; const result = await client.query(historyQuery, [currentUserId, otherUserId]); const messages = result.rows.map(row => ({ id: row.id, sender: { userId: row.sender_id, username: row.sender_username }, recipient: { userId: row.recipient_id, username: row.recipient_username }, message: row.message_content, timestamp: row.created_at })); console.log(`Sending ${messages.length} messages for history between ${currentUserId} and ${otherUserId}`); socket.emit('chat history response', { otherUserId: otherUserId, messages: messages }); } catch (error) { console.error("Error fetching chat history:", error); socket.emit('history error', { otherUserId: otherUserId, error: "Failed to load history." }); } finally { if (client) client.release(); } });
+    socket.on('request chat history', async ({ otherUserId }) => {
+        const userId = socket.user.userId;
+        let client;
+        try {
+            client = await pool.connect();
+            const result = await client.query(`
+                SELECT m.id, m.message_content, m.created_at, u.id as sender_id, u.username as sender_username
+                FROM chat_messages m
+                JOIN users u ON m.sender_id = u.id
+                WHERE (m.sender_id = $1 AND m.recipient_id = $2)
+                   OR (m.sender_id = $2 AND m.recipient_id = $1)
+                ORDER BY m.created_at DESC
+                LIMIT 5
+            `, [userId, otherUserId]);
+            const messages = result.rows.map(row => ({
+                id: row.id,
+                sender: { userId: row.sender_id, username: row.sender_username },
+                message: row.message_content,
+                timestamp: row.created_at
+            }));
+            socket.emit('chat history response', { otherUserId, messages });
+        } catch (error) {
+            console.error('Error fetching chat history:', error);
+            socket.emit('history error', { otherUserId, error: 'Failed to load chat history' });
+        } finally {
+            if (client) client.release();
+        }
+    });
     socket.on('request chat open', ({ targetUserId }) => { const sender = socket.user; console.log(`User ${sender.username} (ID: ${sender.userId}) requests to open chat with User ID ${targetUserId}`); const recipientSocketId = getUserSocketId(targetUserId); if (recipientSocketId) { io.to(recipientSocketId).emit('open chat window', { initiator: { userId: sender.userId, username: sender.username } }); console.log(`Sent 'open chat window' request to socket ${recipientSocketId}`); } else { console.log(`Cannot send chat open request: User ID ${targetUserId} is offline.`); socket.emit('system message', { message: `User is currently offline.` }); } });
     socket.on('disconnect', (reason) => { console.log(`Socket disconnected: ${socket.id}, User: ${socket.user?.username}, Reason: ${reason}`); removeUser(socket.id); });
     socket.on('error', (error) => { console.error(`Socket error for ${socket.id} (User: ${socket.user?.username}):`, error); });
