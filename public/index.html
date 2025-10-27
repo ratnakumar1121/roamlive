@@ -1,145 +1,80 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RoamLive</title>
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#007bff">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
-    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
+  <meta charset="utf-8" />
+  <title>RoamLive</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Load Leaflet CSS for maps -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <!-- Load your app styles -->
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-    <!-- OLD_STR block preserved from roadmap (do not alter content) -->
-    <!-- RoamLive: Ultimate Development Roadmap
+  <!-- MAP UI -->
+  <div id="map" style="width:100vw; height:60vh;"></div>
 
-    ## Executive Summary
-
-    Your RoamLive project is already impressive with **31 core features** spanning real-time messaging, location tracking, and PWA capabilities. To make it truly "ultimate," I've identified **112 additional features** across 8 major categories that would transform RoamLive into a market-leading location-based social platform.
-
-    ... (rest of OLD_STR content preserved as reference only) -->
-
-    <div id="ai-search-bar" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:2000;width:350px;max-width:90vw;">
-        <input type="text" id="ai-search-input" placeholder="Search any place, city, landmark..." style="width:80%;padding:8px 12px;border-radius:6px 0 0 6px;border:1px solid #bbb;font-size:1em;">
-        <button id="ai-search-btn" style="padding:8px 16px;border-radius:0 6px 6px 0;border:1px solid #bbb;background:#007bff;color:#fff;font-weight:bold;cursor:pointer;">Search</button>
-    </div>
-    <div id="ai-search-result" style="display:none;position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:2100;background:#fff;color:#222;padding:16px;border-radius:10px;box-shadow:0 4px 24px #0003;max-width:400px;width:90vw;"></div>
-
-    <div id="map"></div>
-
-    <div id="controls-sidebar">
-        <button id="theme-toggle-btn" title="Toggle dark/light theme">🌙</button>
-        <label for="nickname">Nickname:</label>
-        <input type="text" id="nickname" value="User" readonly>
-        <label for="ghost-mode" class="toggle-label">Ghost Mode:</label>
-        <div class="toggle-container"><label class="toggle-switch"><input type="checkbox" id="ghost-mode"><span class="slider"></span></label><span id="ghost-mode-status">Off</span></div>
-        <label for="my-location-button" class="toggle-label">My Location:</label>
-        <div class="toggle-container"><label class="toggle-switch"><input type="checkbox" id="my-location-button"><span class="slider"></span></label><span id="my-location-status">Off</span></div>
-        <label for="mode">Mode:</label>
-        <select id="mode"><option value="person">Person</option><option value="motorcycle">Motorcycle</option><option value="car">Car</option></select>
-        <label for="map-layer">Map Layer:</label>
-        <select id="map-layer"><option value="streets">Streets</option><option value="satellite">Satellite</option><option value="satellite-hybrid">Satellite with Labels</option></select>
-    </div>
-
-    <div id="user-status"> Logged in as: <span id="logged-in-username"></span> <button id="logout-button">Logout</button> </div>
-
+  <!-- Sidebar/Controls (example layout, adjust as needed) -->
+  <div id="sidebar">
+    <label>Nickname: <input id="nickname" type="text" /></label>
+    <label>Ghost Mode: <input id="ghost-mode" type="checkbox" /></label>
+    <br>
+    <label>My Location: <input id="my-location-button" type="checkbox" /> <span id="my-location-status">Off</span></label>
+    <br>
+    <label>Mode:
+      <select id="mode">
+        <option value="person">Person</option>
+        <option value="motorcycle">Motorcycle</option>
+        <option value="car">Car</option>
+      </select>
+    </label>
+    <label>Map Layer:
+      <select id="map-layer">
+        <option value="streets">Streets</option>
+        <option value="satellite">Satellite</option>
+        <option value="satellite-hybrid">Satellite with Labels</option>
+      </select>
+    </label>
+    <br>
+    <!-- AI Place Search Bar -->
+    <input id="ai-search-input" placeholder="Search any place, city, landmark..." style="margin-top:8px;width:300px;" />
+    <button id="ai-search-btn">Search</button>
+    <div id="ai-search-result" style="display:none;padding:10px;"></div>
+    <br>
+    <!-- Login/Signup Forms -->
     <div id="auth-container">
-        <div id="signup-form" class="auth-form" style="display: none;">
-            <h3>Sign Up</h3>
-            <form>
-                <label for="signup-username">Username:</label>
-                <input type="text" id="signup-username" required autocomplete="username">
-                <label for="signup-password">Password:</label>
-                <input type="password" id="signup-password" required autocomplete="new-password">
-                <button type="submit">Sign Up</button>
-                <div class="message" id="signup-message"></div>
-                <span class="toggle-link" id="toggle-to-login">Already have an account? Login</span>
-            </form>
-        </div>
-        <div id="login-form" class="auth-form" style="display: block;">
-            <h3>Login</h3>
-            <form>
-                <label for="login-username">Username:</label>
-                <input type="text" id="login-username" required autocomplete="username">
-                <label for="login-password">Password:</label>
-                <input type="password" id="login-password" required autocomplete="current-password">
-                <button type="submit">Login</button>
-                <div class="message" id="login-message"></div>
-                <span class="toggle-link" id="toggle-to-signup">Don't have an account? Sign Up</span>
-            </form>
-        </div>
+      <div id="signup-form" style="display:none;">
+        <h4>Sign Up</h4>
+        <form>
+          Username: <input id="signup-username" type="text" />
+          Password: <input id="signup-password" type="password" />
+          <button type="submit">Sign Up</button>
+        </form>
+        <div id="signup-message"></div>
+        <span id="toggle-to-login" style="cursor:pointer;">Already have an account? Login</span>
+      </div>
+      <div id="login-form">
+        <h4>Login</h4>
+        <form>
+          Username: <input id="login-username" type="text" />
+          Password: <input id="login-password" type="password" />
+          <button type="submit">Login</button>
+        </form>
+        <div id="login-message"></div>
+        <span id="toggle-to-signup" style="cursor:pointer;">Don't have an account? Sign Up</span>
+      </div>
     </div>
+    <!-- More UI containers for chat, conversation list, file upload, etc. as needed -->
+  </div>
 
-    <!-- Conversations & Chat (Phase B refined) -->
-    <div id="conversations-panel">
-        <div id="conversations-header"><span>Conversations</span><button id="close-conversations-btn" title="Close List">X</button></div>
-        <ul id="conversations-list"></ul>
-    </div>
+  <!-- Modern Chat/Conversation UI -->
+  <div id="conversations-panel" style="display:none;"></div>
+  <div id="chat-window" style="display:none;"></div>
+  <button id="global-chat-toggle" style="display:none;">💬</button>
+  <span id="chat-unread-badge" style="display:none;"></span>
 
-    <div id="chat-window" class="modern-chatbox">
-        <div class="chatbox-header">
-            <div class="chatbox-header-left">
-                <button id="chat-back-btn" title="Back to List">←</button>
-                <img id="chatbox-avatar" class="avatar" src="" alt="avatar" style="display:none;">
-                <span id="chat-with-username">Chat</span>
-                <span id="chat-with-status" class="chat-status"></span>
-            </div>
-            <div class="chatbox-header-right">
-                <button id="close-chat-btn" title="Close Chat">✕</button>
-            </div>
-        </div>
-        <div class="chatbox-tools">
-            <div id="pinned-messages-bar" class="pinned-messages"></div>
-        </div>
-        <div id="chat-messages" class="chatbox-messages"></div>
-        <div class="typing-indicator" id="typing-indicator" style="display:none;">Typing…</div>
-        <div id="chatbox-input-area">
-            <button id="emoji-btn" title="Choose emoji">😊</button>
-            <input type="text" id="chat-message-input" placeholder="Type a message..." autocomplete="off">
-            <button id="send-chat-btn">Send</button>
-        </div>
-        <emoji-picker id="emoji-picker" class="light"></emoji-picker>
-        <div id="reaction-picker" class="hidden">
-            <button class="reaction-option" data-reaction="👍">👍</button>
-            <button class="reaction-option" data-reaction="❤️">❤️</button>
-            <button class="reaction-option" data-reaction="😂">😂</button>
-            <button class="reaction-option" data-reaction="😮">😮</button>
-            <button class="reaction-option" data-reaction="😢">😢</button>
-            <button class="reaction-option" data-reaction="🙏">🙏</button>
-        </div>
-    </div>
-
-    <button id="global-chat-toggle" title="Open Chat" style="display:flex;align-items:center;justify-content:center;">
-        <span style="font-size:1.7em;">💬</span>
-        <span id="chat-unread-badge"></span>
-    </button>
-
-    <div id="participants-modal" class="modal hidden">
-        <div class="modal-content">
-            <h3>Chat Participants</h3>
-            <div id="participants-list"></div>
-            <div class="modal-actions">
-                <button id="add-participant-modal-btn">Add Participant</button>
-                <button id="close-participants-modal">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="file-upload-modal" class="modal hidden">
-        <div class="modal-content">
-            <h3>Share File</h3>
-            <input type="file" id="file-input" multiple>
-            <div class="modal-actions">
-                <button id="upload-file-btn">Upload</button>
-                <button id="close-file-modal">Cancel</button>
-            </div>
-        </div>
-    </div>
-
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="script.js"></script>
+  <!-- Load Leaflet JS for maps -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- Load your app JavaScript -->
+  <script src="script.js"></script>
 </body>
 </html>
