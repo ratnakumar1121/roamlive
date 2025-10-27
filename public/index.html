@@ -6,56 +6,48 @@
     <title>RoamLive</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#007bff">
-    <!-- Leaflet CSS and JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <!-- Your Custom Styles -->
     <link rel="stylesheet" href="styles.css">
-    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script> <!-- For Emoji Picker -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
 </head>
 <body>
-    <!-- AI Search Bar -->
+    <!-- OLD_STR block preserved from roadmap (do not alter content) -->
+    <!-- RoamLive: Ultimate Development Roadmap
+
+    ## Executive Summary
+
+    Your RoamLive project is already impressive with **31 core features** spanning real-time messaging, location tracking, and PWA capabilities. To make it truly "ultimate," I've identified **112 additional features** across 8 major categories that would transform RoamLive into a market-leading location-based social platform.
+
+    ... (rest of OLD_STR content preserved as reference only) -->
+
     <div id="ai-search-bar" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:2000;width:350px;max-width:90vw;">
         <input type="text" id="ai-search-input" placeholder="Search any place, city, landmark..." style="width:80%;padding:8px 12px;border-radius:6px 0 0 6px;border:1px solid #bbb;font-size:1em;">
         <button id="ai-search-btn" style="padding:8px 16px;border-radius:0 6px 6px 0;border:1px solid #bbb;background:#007bff;color:#fff;font-weight:bold;cursor:pointer;">Search</button>
     </div>
-    <!-- AI Search Result Popup -->
     <div id="ai-search-result" style="display:none;position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:2100;background:#fff;color:#222;padding:16px;border-radius:10px;box-shadow:0 4px 24px #0003;max-width:400px;width:90vw;"></div>
-    <!-- Map container -->
+
     <div id="map"></div>
 
-    <!-- Sidebar Controls -->
     <div id="controls-sidebar">
         <button id="theme-toggle-btn" title="Toggle dark/light theme">🌙</button>
         <label for="nickname">Nickname:</label>
-        <input type="text" id="nickname" value="User" readonly> <!-- Nickname set on login -->
+        <input type="text" id="nickname" value="User" readonly>
         <label for="ghost-mode" class="toggle-label">Ghost Mode:</label>
-        <div class="toggle-container"> <label class="toggle-switch"><input type="checkbox" id="ghost-mode"><span class="slider"></span></label><span id="ghost-mode-status">Off</span></div>
+        <div class="toggle-container"><label class="toggle-switch"><input type="checkbox" id="ghost-mode"><span class="slider"></span></label><span id="ghost-mode-status">Off</span></div>
         <label for="my-location-button" class="toggle-label">My Location:</label>
         <div class="toggle-container"><label class="toggle-switch"><input type="checkbox" id="my-location-button"><span class="slider"></span></label><span id="my-location-status">Off</span></div>
         <label for="mode">Mode:</label>
-        <select id="mode"> <option value="person">Person</option> <option value="motorcycle">Motorcycle</option> <option value="car">Car</option> </select>
+        <select id="mode"><option value="person">Person</option><option value="motorcycle">Motorcycle</option><option value="car">Car</option></select>
         <label for="map-layer">Map Layer:</label>
-        <select id="map-layer">
-            <option value="streets">Streets</option>
-            <option value="satellite">Satellite</option>
-            <option value="satellite-hybrid">Satellite with Labels</option>
-        </select>
+        <select id="map-layer"><option value="streets">Streets</option><option value="satellite">Satellite</option><option value="satellite-hybrid">Satellite with Labels</option></select>
     </div>
 
-     <!-- Logged In Status Display -->
-     <div id="user-status">
-        Logged in as: <span id="logged-in-username"></span>
-        <button id="logout-button">Logout</button>
-     </div>
+    <div id="user-status"> Logged in as: <span id="logged-in-username"></span> <button id="logout-button">Logout</button> </div>
 
-
-    <!-- Authentication Forms Container -->
     <div id="auth-container">
-        <!-- Signup Form -->
-        <div id="signup-form" class="auth-form" style="display: none;"> <!-- Initially hidden -->
+        <div id="signup-form" class="auth-form" style="display: none;">
             <h3>Sign Up</h3>
             <form>
                 <label for="signup-username">Username:</label>
@@ -64,13 +56,10 @@
                 <input type="password" id="signup-password" required autocomplete="new-password">
                 <button type="submit">Sign Up</button>
                 <div class="message" id="signup-message"></div>
-                <!-- MODIFIED: Removed onclick, added ID -->
                 <span class="toggle-link" id="toggle-to-login">Already have an account? Login</span>
             </form>
         </div>
-
-        <!-- Login Form -->
-        <div id="login-form" class="auth-form" style="display: block;"> <!-- Initially shown -->
+        <div id="login-form" class="auth-form" style="display: block;">
             <h3>Login</h3>
             <form>
                 <label for="login-username">Username:</label>
@@ -79,29 +68,34 @@
                 <input type="password" id="login-password" required autocomplete="current-password">
                 <button type="submit">Login</button>
                 <div class="message" id="login-message"></div>
-                <!-- MODIFIED: Removed onclick, added ID -->
                 <span class="toggle-link" id="toggle-to-signup">Don't have an account? Sign Up</span>
             </form>
         </div>
     </div>
 
-    <!-- Chat Window -->
+    <!-- Conversations & Chat (Phase B refined) -->
+    <div id="conversations-panel">
+        <div id="conversations-header"><span>Conversations</span><button id="close-conversations-btn" title="Close List">X</button></div>
+        <ul id="conversations-list"></ul>
+    </div>
+
     <div id="chat-window" class="modern-chatbox">
         <div class="chatbox-header">
             <div class="chatbox-header-left">
-                <button id="chat-back-btn" title="Back to List">&#8592;</button>
+                <button id="chat-back-btn" title="Back to List">←</button>
                 <img id="chatbox-avatar" class="avatar" src="" alt="avatar" style="display:none;">
                 <span id="chat-with-username">Chat</span>
                 <span id="chat-with-status" class="chat-status"></span>
             </div>
             <div class="chatbox-header-right">
-                <button id="close-chat-btn" title="Close Chat">&#10005;</button>
+                <button id="close-chat-btn" title="Close Chat">✕</button>
             </div>
         </div>
         <div class="chatbox-tools">
-            <div id="pinned-messages-list" class="pinned-messages"></div>
+            <div id="pinned-messages-bar" class="pinned-messages"></div>
         </div>
         <div id="chat-messages" class="chatbox-messages"></div>
+        <div class="typing-indicator" id="typing-indicator" style="display:none;">Typing…</div>
         <div id="chatbox-input-area">
             <button id="emoji-btn" title="Choose emoji">😊</button>
             <input type="text" id="chat-message-input" placeholder="Type a message..." autocomplete="off">
@@ -118,13 +112,11 @@
         </div>
     </div>
 
-    <!-- Modern Floating Chat Icon Button -->
-    <button id="global-chat-toggle" title="Open Chat" style="display: flex; align-items: center; justify-content: center;">
-        <span style="font-size: 1.7em;">💬</span>
+    <button id="global-chat-toggle" title="Open Chat" style="display:flex;align-items:center;justify-content:center;">
+        <span style="font-size:1.7em;">💬</span>
         <span id="chat-unread-badge"></span>
     </button>
 
-    <!-- Group Chat Participants Modal -->
     <div id="participants-modal" class="modal hidden">
         <div class="modal-content">
             <h3>Chat Participants</h3>
@@ -136,7 +128,6 @@
         </div>
     </div>
 
-    <!-- File Upload Modal -->
     <div id="file-upload-modal" class="modal hidden">
         <div class="modal-content">
             <h3>Share File</h3>
@@ -148,46 +139,7 @@
         </div>
     </div>
 
-    <!-- Conversations Panel -->
-    <div id="conversations-panel">
-        <div id="conversations-header"> <span>Conversations</span> <button id="close-conversations-btn" title="Close List">X</button> </div>
-        <ul id="conversations-list"> </ul>
-    </div>
-
-    <!-- New chat container -->
-    <div id="chat-container" class="hidden">
-        <div class="chat-header">
-            <div class="chat-title">
-                <span id="chat-target-name">Global Chat</span>
-                <span id="chat-target-status" class="status-indicator"></span>
-            </div>
-            <div class="chat-actions">
-                <button id="toggle-theme" class="icon-button" title="Toggle Theme">🌓</button>
-                <button id="close-chat" class="icon-button">✕</button>
-            </div>
-        </div>
-        
-        <div class="chat-tools">
-            <div id="pinned-messages-list" class="pinned-messages"></div>
-        </div>
-        
-        <div id="chat-messages"></div>
-        
-        <div class="chat-input-container">
-            <div class="message-actions">
-                <button id="toggle-ghost-mode" class="icon-button" title="Toggle Ghost Mode">👻</button>
-                <button id="toggle-satellite" class="icon-button" title="Toggle Satellite View">🛰️</button>
-                <button id="toggle-terrain" class="icon-button" title="Toggle Terrain View">🗻</button>
-                <button id="toggle-meetpt" class="icon-button" title="Calculate Meet Point">📍</button>
-            </div>
-            <textarea id="message-input" placeholder="Type a message..."></textarea>
-            <button id="send-message">Send</button>
-        </div>
-    </div>
-
-    <!-- Libraries (Socket.IO needs to load BEFORE script.js) -->
     <script src="/socket.io/socket.io.js"></script>
-    <!-- Your Custom Script -->
     <script src="script.js"></script>
 </body>
 </html>
