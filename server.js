@@ -76,6 +76,18 @@ io.on('connection', (socket) => {
 
     socket.on('update location', ({ latitude, longitude }) => { const userData = onlineUsers.get(socket.user.userId); if (userData) { userData.latitude = latitude; userData.longitude = longitude; io.emit('location updated', { userId: socket.user.userId, latitude: latitude, longitude: longitude }); } });
 
+    socket.on('broadcast location', () => {
+        const userData = onlineUsers.get(socket.user.userId);
+        if (userData && userData.latitude !== null && userData.longitude !== null) {
+            socket.broadcast.emit('location broadcast', {
+                userId: socket.user.userId,
+                username: userData.username,
+                latitude: userData.latitude,
+                longitude: userData.longitude
+            });
+        }
+    });
+
     socket.on('disconnect', () => { removeUser(socket.id); });
 });
 
