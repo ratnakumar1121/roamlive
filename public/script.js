@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Cache DOM Elements FIRST ---
     domElements = { // <-- assign to global
         mapContainer: document.getElementById('map'),
+        broadcastLocationBtn: document.getElementById('broadcast-location-btn'),
         signupFormEl: document.querySelector('#signup-form form'), // <-- Check if this is found
         loginFormEl: document.querySelector('#login-form form'),   // <-- Check if this is found
         signupMessageEl: document.getElementById('signup-message'),
@@ -182,7 +183,26 @@ document.addEventListener('DOMContentLoaded', () => {
         locations.forEach(({ userId, latitude, longitude }) => {
             updateUserLocationOnMap(userId, latitude, longitude);
         });
-    }); }
+    });
+
+    socket.on('location broadcast', ({ userId, username, latitude, longitude }) => {
+        if (map) {
+            const broadcastIcon = L.divIcon({
+                className: 'broadcast-icon',
+                html: '📍',
+                iconSize: [30, 30]
+            });
+            const broadcastMarker = L.marker([latitude, longitude], { icon: broadcastIcon })
+                .addTo(map)
+                .bindPopup(`${username} is here!`)
+                .openPopup();
+
+            setTimeout(() => {
+                map.removeLayer(broadcastMarker);
+            }, 10000); // Remove the marker after 10 seconds
+        }
+    });
+}
     function disconnectWebSocket() { if (socket) { console.log("[WS] Disconnecting..."); socket.disconnect(); socket = null; } }
     function openChatWindow(targetUser, isGroup = false) {
         if (!domElements.chatWindow || !socket) return;
@@ -560,6 +580,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const selected = this.value;
                 if (map._customLayers[selected]) {
                     map.addLayer(map._customLayers[selected]);
+                }
+            });
+        }
+        if (domElements.broadcastLocationBtn) {
+            domElements.broadcastLocationBtn.addEventListener('click', () => {
+                if (socket?.connected && locationActive && userLocation.latitude !== null && userLocation.longitude !== null) {
+                    socket.emit('broadcast location');
+                    alert('Your location has been broadcast to other users.');
+                } else {
+                    alert('Please enable your location first.');
                 }
             });
         }
